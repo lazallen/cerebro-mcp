@@ -6,6 +6,7 @@ const handleDeclineEvent = require('./decline');
 const handleCreateEvent = require('./create');
 const handleCancelEvent = require('./cancel');
 const handleDeleteEvent = require('./delete');
+const handleFindMeetingTimes = require('./find-meeting-times');
 
 // Calendar tool definitions
 const calendarTools = [
@@ -110,6 +111,55 @@ const calendarTools = [
       required: ["eventId"]
     },
     handler: handleDeleteEvent
+  },
+  {
+    name: "find-meeting-times",
+    description: "Find available meeting times using the Scheduling Assistant. Suggests meeting times based on attendee availability, working hours, and time constraints.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        attendees: {
+          type: "array",
+          items: {
+            type: "string"
+          },
+          description: "List of attendee email addresses to check availability for"
+        },
+        requiredAttendees: {
+          type: "array",
+          items: {
+            type: "string"
+          },
+          description: "Subset of attendees who are required (vs optional)"
+        },
+        startDateTime: {
+          type: "string",
+          description: "Start of the time window to search (ISO 8601 format, e.g., '2026-01-14T09:00:00'). Defaults to now."
+        },
+        endDateTime: {
+          type: "string",
+          description: "End of the time window to search (ISO 8601 format, e.g., '2026-01-14T17:00:00'). Defaults to 5 days from now."
+        },
+        duration: {
+          type: "string",
+          description: "Meeting duration in ISO 8601 duration format (e.g., 'PT30M' for 30 minutes, 'PT1H' for 1 hour). Default: 'PT30M'"
+        },
+        timeZone: {
+          type: "string",
+          description: "Time zone for the meeting (e.g., 'Europe/London'). Default: 'Europe/London'"
+        },
+        maxCandidates: {
+          type: "number",
+          description: "Maximum number of meeting time suggestions to return (default: 5, max: 20)"
+        },
+        returnSuggestionReasons: {
+          type: "boolean",
+          description: "Include reasons why each time slot was suggested (default: false)"
+        }
+      },
+      required: []
+    },
+    handler: handleFindMeetingTimes
   }
 ];
 
@@ -119,5 +169,6 @@ module.exports = {
   handleDeclineEvent,
   handleCreateEvent,
   handleCancelEvent,
-  handleDeleteEvent
+  handleDeleteEvent,
+  handleFindMeetingTimes
 };
