@@ -39,8 +39,8 @@ async function handleAuthenticate(args) {
   }
   
   // For real authentication, generate an auth URL and instruct the user to visit it
-  const authUrl = `${config.AUTH_CONFIG.authServerUrl}/auth?client_id=${config.AUTH_CONFIG.clientId}`;
-  
+  const authUrl = `${config.AUTH_CONFIG.authServerUrl}/auth/microsoft/login?client_id=${config.AUTH_CONFIG.clientId}`;
+
   return {
     content: [{
       type: "text",

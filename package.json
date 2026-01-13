@@ -5,17 +5,24 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "auth-server": "node outlook-auth-server.js",
+    "auth-server": "node common/auth-server.js",
+    "auth-server:microsoft": "node common/auth-server.js",
     "test-mode": "USE_TEST_MODE=true node index.js",
     "inspect": "npx @modelcontextprotocol/inspector node index.js",
-    "test": "jest"
+    "test": "jest",
+    "test:microsoft": "jest services/microsoft/test"
   },
   "keywords": [
     "claude",
-    "outlook",
+    "cerebro",
     "mcp",
+    "microsoft",
+    "outlook",
+    "slack",
+    "productivity",
     "microsoft-graph",
-    "email"
+    "email",
+    "calendar"
   ],
   "author": "",
   "license": "MIT",

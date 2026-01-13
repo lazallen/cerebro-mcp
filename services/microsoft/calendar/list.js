@@ -12,19 +12,27 @@ const { ensureAuthenticated } = require('../auth');
  */
 async function handleListEvents(args) {
   const count = Math.min(args.count || 10, config.MAX_RESULT_COUNT);
-  
+
   try {
     // Get access token
     const accessToken = await ensureAuthenticated();
-    
-    // Build API endpoint
-    let endpoint = 'me/events';
-    
+
+    // Build API endpoint using calendarView (recommended for date-range queries)
+    // calendarView handles recurring events properly and is optimized for time-based queries
+    let endpoint = 'me/calendar/calendarView';
+
+    // Set up date range - from now to 5 days in the future
+    const startDateTime = new Date();
+    const endDateTime = new Date();
+    endDateTime.setDate(endDateTime.getDate() + 5);
+
     // Add query parameters
+    // Note: calendarView requires startDateTime and endDateTime query parameters
     const queryParams = {
+      startDateTime: startDateTime.toISOString(),
+      endDateTime: endDateTime.toISOString(),
       $top: count,
       $orderby: 'start/dateTime',
-      $filter: `start/dateTime ge '${new Date().toISOString()}'`,
       $select: config.CALENDAR_SELECT_FIELDS
     };
     

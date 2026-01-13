@@ -22,21 +22,18 @@ async function callGraphAPI(accessToken, method, path, data = null, queryParams 
   }
 
   try {
-    console.error(`Making real API call: ${method} ${path}`);
-    
     // Check if path already contains the full URL (from nextLink)
     let finalUrl;
     if (path.startsWith('http://') || path.startsWith('https://')) {
       // Path is already a full URL (from pagination nextLink)
       finalUrl = path;
-      console.error(`Using full URL from nextLink: ${finalUrl}`);
     } else {
       // Build URL from path and queryParams
       // Encode path segments properly
       const encodedPath = path.split('/')
         .map(segment => encodeURIComponent(segment))
         .join('/');
-      
+
       // Build query string from parameters with special handling for OData filters
       let queryString = '';
       if (Object.keys(queryParams).length > 0) {
@@ -45,15 +42,15 @@ async function callGraphAPI(accessToken, method, path, data = null, queryParams 
         if (filter) {
           delete queryParams.$filter; // Remove from regular params
         }
-        
+
         // Build query string with proper encoding for regular params
         const params = new URLSearchParams();
         for (const [key, value] of Object.entries(queryParams)) {
           params.append(key, value);
         }
-        
+
         queryString = params.toString();
-        
+
         // Add filter parameter separately with proper encoding
         if (filter) {
           if (queryString) {
@@ -62,18 +59,15 @@ async function callGraphAPI(accessToken, method, path, data = null, queryParams 
             queryString = `$filter=${encodeURIComponent(filter)}`;
           }
         }
-        
+
         if (queryString) {
           queryString = '?' + queryString;
         }
-        
-        console.error(`Query string: ${queryString}`);
       }
-      
+
       finalUrl = `${config.GRAPH_API_ENDPOINT}${encodedPath}${queryString}`;
-      console.error(`Full URL: ${finalUrl}`);
     }
-    
+
     return new Promise((resolve, reject) => {
       const options = {
         method: method,
@@ -82,14 +76,14 @@ async function callGraphAPI(accessToken, method, path, data = null, queryParams 
           'Content-Type': 'application/json'
         }
       };
-      
+
       const req = https.request(finalUrl, options, (res) => {
         let responseData = '';
-        
+
         res.on('data', (chunk) => {
           responseData += chunk;
         });
-        
+
         res.on('end', () => {
           if (res.statusCode >= 200 && res.statusCode < 300) {
             try {
@@ -107,15 +101,15 @@ async function callGraphAPI(accessToken, method, path, data = null, queryParams 
           }
         });
       });
-      
+
       req.on('error', (error) => {
         reject(new Error(`Network error during API call: ${error.message}`));
       });
-      
+
       if (data && (method === 'POST' || method === 'PATCH' || method === 'PUT')) {
         req.write(JSON.stringify(data));
       }
-      
+
       req.end();
     });
   } catch (error) {
@@ -147,7 +141,7 @@ async function callGraphAPIPaginated(accessToken, method, path, queryParams = {}
     do {
       // Make API call
       const response = await callGraphAPI(accessToken, method, currentUrl, null, currentParams);
-      
+
       // Add items from this page
       if (response.value && Array.isArray(response.value)) {
         allItems.push(...response.value);
@@ -162,7 +156,7 @@ async function callGraphAPIPaginated(accessToken, method, path, queryParams = {}
 
       // Get next page URL
       nextLink = response['@odata.nextLink'];
-      
+
       if (nextLink) {
         // Pass the full nextLink URL directly to callGraphAPI
         currentUrl = nextLink;
@@ -175,7 +169,7 @@ async function callGraphAPIPaginated(accessToken, method, path, queryParams = {}
     const finalItems = maxCount > 0 ? allItems.slice(0, maxCount) : allItems;
 
     console.error(`Pagination complete: Retrieved ${finalItems.length} total items`);
-    
+
     return {
       value: finalItems,
       '@odata.count': finalItems.length

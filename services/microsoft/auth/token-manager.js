@@ -14,7 +14,7 @@ let cachedTokens = null;
 function loadTokenCache() {
   try {
     const tokenPath = config.AUTH_CONFIG.tokenStorePath;
-    console.error(`[DEBUG] Attempting to load tokens from: ${tokenPath}`);
+    console.log(`[DEBUG] Attempting to load tokens from: ${tokenPath}`);
     console.error(`[DEBUG] HOME directory: ${process.env.HOME}`);
     console.error(`[DEBUG] Full resolved path: ${tokenPath}`);
     
