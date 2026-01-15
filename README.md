@@ -5,7 +5,7 @@ A **multi-service MCP (Model Context Protocol) server** that connects Claude wit
 ## Currently Supported Services
 
 - **Microsoft 365 / Outlook** - Email, calendar, contacts, and more through Microsoft Graph API
-- **Slack** - *Coming soon*
+- **Slack** - Channel history, threads, canvases, and workspace integration
 
 ## Architecture
 
@@ -32,7 +32,14 @@ cerebro-mcp/
 │   │   ├── rules/             # Email rules
 │   │   ├── utils/             # MS Graph API client
 │   │   └── test/              # Service tests
-│   └── slack/                 # Future: Slack service
+│   └── slack/                 # Slack service
+│       ├── index.js           # Service entry point
+│       ├── config.js          # Slack-specific config
+│       ├── auth/              # OAuth authentication
+│       ├── channels/          # Channel operations
+│       ├── threads/           # Thread operations
+│       ├── canvases/          # Canvas operations
+│       └── utils/             # Slack API client
 └── package.json
 
 ```
@@ -41,8 +48,8 @@ cerebro-mcp/
 
 All tools use **service namespaces** for clarity:
 
-- Microsoft tools: `microsoft.authenticate`, `microsoft.list_emails`, `microsoft.send_email`, etc.
-- Future Slack tools: `slack.send_message`, `slack.list_channels`, etc.
+- Microsoft tools: `microsoft.authenticate`, `microsoft.list-emails`, `microsoft.send-email`, etc.
+- Slack tools: `slack.authenticate`, `slack.list-channels`, `slack.read-canvas`, etc.
 
 This makes it immediately clear which service each tool belongs to.
 
@@ -64,7 +71,17 @@ This makes it immediately clear which service each tool belongs to.
 - **Rules Management**: List and create email rules
 - **OData Filtering**: Proper escaping and formatting of complex queries
 
+### Slack Features
+
+- **Authentication**: OAuth 2.0 with user tokens
+- **Channel Access**: List channels and read message history
+- **Thread Support**: Retrieve thread replies and conversations
+- **Canvas Integration**: Read and search Slack canvases
+- **Workspace Integration**: Full read access to Slack workspace content
+
 ## Quick Start
+
+### Microsoft 365 Setup
 
 1. **Install dependencies**: `npm install`
 2. **Azure setup**: Register app in Azure Portal (see detailed steps below)
@@ -73,6 +90,16 @@ This makes it immediately clear which service each tool belongs to.
 5. **Start auth server**: `npm run auth-server`
 6. **Authenticate**: Use `microsoft.authenticate` tool in Claude to get the OAuth URL
 7. **Start using**: Access your Microsoft services through Claude!
+
+### Slack Setup
+
+1. **Configure Slack App**: Create a Slack app with required OAuth scopes (see Slack Configuration below)
+2. **Configure environment**: Add Slack credentials to `.env`
+3. **Start auth server**: `npm run auth-server`
+4. **Authenticate**: Use `slack.authenticate` tool in Claude
+5. **Start using**: Access your Slack workspace through Claude!
+
+For detailed Slack setup instructions, see [services/slack/README.md](services/slack/README.md)
 
 ## Installation
 
@@ -223,6 +250,18 @@ Once authenticated, you can use:
 - `microsoft.create-rule` - Create email rule
 - `microsoft.edit-rule-sequence` - Edit rule sequence order
 
+### Available Slack Tools
+
+Once authenticated, you can use:
+
+- `slack.authenticate` - Authenticate with Slack
+- `slack.check-auth-status` - Check auth status
+- `slack.list-channels` - List public channels
+- `slack.get-channel-history` - Get message history from a channel
+- `slack.get-thread-replies` - Get all replies in a thread
+- `slack.read-canvas` - Read a specific canvas by ID
+- `slack.search-canvases` - Search for canvases by keywords
+
 ## Authentication Flow
 
 ### Microsoft 365
@@ -235,7 +274,56 @@ Once authenticated, you can use:
 6. Tokens stored in `~/.microsoft-token.json`
 7. Automatic token refresh when needed
 
+### Slack
+
+1. Start unified auth server: `npm run auth-server`
+2. Use `slack.authenticate` tool in Claude
+3. Visit URL: `http://localhost:3333/auth/slack/login`
+4. Sign in with Slack and grant permissions
+5. Redirected to: `https://localhost:3333/auth/slack/callback`
+6. Tokens stored in `~/.slack-token.json`
+7. User tokens do not expire (no refresh needed)
+
 The unified auth server handles authentication for all services on port 3333.
+
+## Slack Configuration
+
+### Required OAuth Scopes
+
+To use Slack integration, your Slack app needs these OAuth scopes:
+
+**Basic Access:**
+- `channels:read` - List public channels
+- `channels:history` - Read message history in public channels
+- `groups:read` - List private channels
+- `groups:history` - Read message history in private channels
+
+**Canvas Access:**
+- `canvases:read` - Read canvas content
+- `canvases:write` - Create and edit canvases
+
+**Optional:**
+- `reminders:read` - Read reminders
+- `reminders:write` - Create reminders
+
+### Slack App Setup
+
+1. Go to [Slack API Apps](https://api.slack.com/apps)
+2. Create new app or select existing app
+3. Navigate to "OAuth & Permissions"
+4. Add redirect URL: `https://localhost:3333/auth/slack/callback`
+5. Add required OAuth scopes under "User Token Scopes"
+6. Copy **Client ID** and **Client Secret**
+7. Add to `.env`:
+   ```bash
+   SLACK_CLIENT_ID=your-client-id
+   SLACK_CLIENT_SECRET=your-client-secret
+   SLACK_REDIRECT_URI=https://localhost:3333/auth/slack/callback
+   ```
+
+**Note**: Canvases are only available to Slack workspaces on a paid plan.
+
+For complete setup instructions, see [services/slack/README.md](services/slack/README.md)
 
 ## Troubleshooting
 

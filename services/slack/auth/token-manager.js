@@ -13,10 +13,10 @@ const tokenStorage = new TokenStorage(config.AUTH_CONFIG);
 
 /**
  * Load tokens from cache
- * @returns {object|null} - Token object or null
+ * @returns {Promise<object|null>} - Token object or null
  */
-function loadTokenCache() {
-  return tokenStorage.tokens;
+async function loadTokenCache() {
+  return await tokenStorage.getTokens();
 }
 
 /**

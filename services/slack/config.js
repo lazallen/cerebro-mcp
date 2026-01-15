@@ -31,7 +31,9 @@ module.exports = {
     // These are read-only scopes for Phase 1
     userScopes: [
       'channels:read',
-      'channels:history'
+      'channels:history',
+      'canvases:read',
+      'canvases:write'
     ],
 
     // OAuth endpoints

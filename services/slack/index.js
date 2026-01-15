@@ -9,13 +9,15 @@ const config = require('./config');
 const { authTools } = require('./auth/tools');
 const { channelsTools } = require('./channels');
 const { threadsTools } = require('./threads');
+const { canvasesTools } = require('./canvases');
 
 // Combine all tools from different modules
 // Phase 1: Read-only operations only
 const allTools = [
   ...authTools,      // authenticate, check-auth-status
   ...channelsTools,  // list-channels, get-channel-history
-  ...threadsTools    // get-thread-replies
+  ...threadsTools,   // get-thread-replies
+  ...canvasesTools   // read-canvas, search-canvases
 ];
 
 // Export service metadata
@@ -25,7 +27,7 @@ module.exports = {
   name: 'slack',
   displayName: 'Slack',
   version: config.SERVICE_VERSION,
-  description: 'Slack workspace integration for reading channels, messages, and threads. Phase 1: Read-only operations.',
+  description: 'Slack workspace integration for reading channels, messages, threads, and canvases. Phase 1: Read-only operations.',
 
   // All tools from this service (WITHOUT namespace prefix)
   // The main server adds the prefix automatically

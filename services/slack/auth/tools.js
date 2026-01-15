@@ -29,7 +29,7 @@ async function handleAuthenticate(args) {
   }
 
   // Check if already authenticated
-  const tokens = tokenManager.loadTokenCache();
+  const tokens = await tokenManager.loadTokenCache();
   if (tokens && tokens.access_token && !force) {
     return {
       content: [{
@@ -56,7 +56,7 @@ async function handleAuthenticate(args) {
  * @returns {Promise<object>} - MCP tool response
  */
 async function handleCheckAuthStatus() {
-  const tokens = tokenManager.loadTokenCache();
+  const tokens = await tokenManager.loadTokenCache();
 
   if (!tokens || !tokens.access_token) {
     return {
