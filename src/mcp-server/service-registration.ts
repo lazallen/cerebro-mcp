@@ -8,6 +8,7 @@
 import { ServiceRegistry } from '../common/service-registry';
 import { logger } from '../common';
 import { MicrosoftService } from '../services/microsoft';
+import { SlackService } from '../services/slack';
 import { ServiceConfig } from '../types/service';
 
 /**
@@ -92,11 +93,47 @@ export async function registerServices(registry: ServiceRegistry): Promise<void>
 
   // Slack
   if (hasSlackCredentials()) {
-    // TODO: Implement in Feature 005
-    logger.info({
-      service: 'slack',
-      msg: 'Slack credentials found (service implementation pending Feature 005)',
-    });
+    try {
+      const slackConfig: ServiceConfig = {
+        name: 'slack',
+        displayName: 'Slack',
+        apiEndpoint: 'https://slack.com/api',
+        oauth: {
+          clientId: process.env['SLACK_CLIENT_ID'] ?? '',
+          clientSecret: process.env['SLACK_CLIENT_SECRET'] ?? '',
+          redirectUri: 'http://localhost:3333/auth/slack/callback',
+          scopes: [
+            'channels:read',
+            'channels:history',
+            'groups:read',
+            'groups:history',
+            'canvases:read',
+            'canvases:write',
+            'identify',
+            'reminders:read',
+            'reminders:write',
+          ],
+          authEndpoint: 'https://slack.com/oauth/v2/authorize',
+          tokenEndpoint: 'https://slack.com/api/oauth.v2.access',
+        },
+        tokenStorePath: './.tokens/slack-tokens.json',
+      };
+
+      const slackService = new SlackService(slackConfig);
+      await registry.register(slackService);
+      registeredCount++;
+
+      logger.info({
+        service: 'slack',
+        msg: 'Slack service registered successfully',
+      });
+    } catch (error) {
+      logger.error({
+        service: 'slack',
+        error: error instanceof Error ? error.message : String(error),
+        msg: 'Failed to register Slack service',
+      });
+    }
   } else {
     logger.info({
       service: 'slack',
