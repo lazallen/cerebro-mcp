@@ -299,6 +299,52 @@ export class MicrosoftService implements BaseService {
         },
         handler: this.deleteEvent.bind(this),
       },
+      {
+        name: 'find-meeting-times',
+        description:
+          'Find optimal meeting times based on attendee availability. Uses Microsoft Graph findMeetingTimes API to suggest time slots.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            attendees: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Email addresses of required attendees',
+            },
+            optionalAttendees: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Email addresses of optional attendees',
+            },
+            meetingDuration: {
+              type: 'number',
+              description: 'Meeting duration in minutes (default: 60)',
+              default: 60,
+            },
+            maxCandidates: {
+              type: 'number',
+              description: 'Maximum number of time slot suggestions (default: 5, max: 10)',
+              default: 5,
+            },
+            timeConstraintStart: {
+              type: 'string',
+              description: 'Start of time window in ISO 8601 format (default: now)',
+            },
+            timeConstraintEnd: {
+              type: 'string',
+              description: 'End of time window in ISO 8601 format (default: 5 days from start)',
+            },
+            minimumAttendeePercentage: {
+              type: 'number',
+              description:
+                'Minimum percentage of attendees required (0-100, default: 100 for all required)',
+              default: 100,
+            },
+          },
+          required: ['attendees', 'meetingDuration'],
+        },
+        handler: this.findMeetingTimes.bind(this),
+      },
     ];
   }
 
@@ -625,6 +671,112 @@ export class MicrosoftService implements BaseService {
       eventId,
       notifiedAttendees: sendCancellation ? notifiedAttendees : [],
       message: 'Event deleted successfully',
+    };
+  }
+
+  /**
+   * Find optimal meeting times based on attendee availability
+   */
+  private async findMeetingTimes(input: Record<string, unknown>): Promise<unknown> {
+    const attendees = input['attendees'] as string[];
+    const optionalAttendees = (input['optionalAttendees'] as string[] | undefined) ?? [];
+    const meetingDuration = (input['meetingDuration'] as number) ?? 60;
+    const maxCandidates = Math.min((input['maxCandidates'] as number | undefined) ?? 5, 10);
+    const minimumAttendeePercentage =
+      (input['minimumAttendeePercentage'] as number | undefined) ?? 100;
+
+    // Calculate time constraint
+    const now = new Date();
+    const timeConstraintStart = input['timeConstraintStart']
+      ? new Date(input['timeConstraintStart'] as string)
+      : now;
+    const timeConstraintEnd = input['timeConstraintEnd']
+      ? new Date(input['timeConstraintEnd'] as string)
+      : new Date(timeConstraintStart.getTime() + 5 * 24 * 60 * 60 * 1000); // 5 days
+
+    const requestBody = {
+      attendees: [
+        ...attendees.map((email) => ({
+          emailAddress: { address: email },
+          type: 'Required',
+        })),
+        ...optionalAttendees.map((email) => ({
+          emailAddress: { address: email },
+          type: 'Optional',
+        })),
+      ],
+      timeConstraint: {
+        timeslots: [
+          {
+            start: {
+              dateTime: timeConstraintStart.toISOString(),
+              timeZone: 'UTC',
+            },
+            end: {
+              dateTime: timeConstraintEnd.toISOString(),
+              timeZone: 'UTC',
+            },
+          },
+        ],
+      },
+      meetingDuration: `PT${meetingDuration}M`, // ISO 8601 duration format
+      maxCandidates,
+      isOrganizerOptional: false,
+      returnSuggestionReasons: true,
+      minimumAttendeePercentage,
+    };
+
+    const response = await this.apiClient.request('/me/findMeetingTimes', {
+      method: 'POST',
+      body: requestBody,
+    });
+
+    const data = response.data as {
+      meetingTimeSuggestions?: Array<{
+        confidence?: number;
+        organizerAvailability?: string;
+        suggestionReason?: string;
+        meetingTimeSlot?: {
+          start?: { dateTime?: string; timeZone?: string };
+          end?: { dateTime?: string; timeZone?: string };
+        };
+        attendeeAvailability?: Array<{
+          attendee?: { emailAddress?: { address?: string } };
+          availability?: string;
+        }>;
+      }>;
+      emptySuggestionsReason?: string;
+    };
+
+    const suggestions = data.meetingTimeSuggestions ?? [];
+
+    return {
+      success: true,
+      suggestionsCount: suggestions.length,
+      suggestions: suggestions.map((suggestion) => ({
+        confidence: suggestion.confidence,
+        reason: suggestion.suggestionReason,
+        timeSlot: {
+          start: suggestion.meetingTimeSlot?.start?.dateTime,
+          end: suggestion.meetingTimeSlot?.end?.dateTime,
+          timeZone: suggestion.meetingTimeSlot?.start?.timeZone ?? 'UTC',
+        },
+        organizerAvailability: suggestion.organizerAvailability,
+        attendeeAvailability: (suggestion.attendeeAvailability ?? []).map((a) => ({
+          email: a.attendee?.emailAddress?.address,
+          availability: a.availability,
+        })),
+      })),
+      emptySuggestionsReason: data.emptySuggestionsReason,
+      searchParameters: {
+        attendees,
+        optionalAttendees,
+        meetingDuration,
+        timeWindow: {
+          start: timeConstraintStart.toISOString(),
+          end: timeConstraintEnd.toISOString(),
+        },
+      },
     };
   }
 }

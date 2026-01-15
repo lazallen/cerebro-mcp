@@ -9,7 +9,7 @@
 
 ## Overview
 
-Extends the Microsoft 365 service (Feature 004) with calendar management capabilities using Microsoft Graph API. Provides tools for viewing, creating, updating, and deleting calendar events.
+Extends the Microsoft 365 service (Feature 004) with calendar management capabilities using Microsoft Graph API. Provides tools for viewing, creating, updating, deleting calendar events, and finding optimal meeting times based on attendee availability.
 
 ---
 
@@ -22,6 +22,7 @@ The Microsoft 365 service currently only supports email operations. Users need c
 - Update or cancel existing events
 - Query events within date ranges
 - Manage attendees and meeting details
+- Find optimal meeting times across multiple attendees' calendars
 
 ### Success Criteria
 1. Users can list calendar events within date ranges
@@ -29,8 +30,9 @@ The Microsoft 365 service currently only supports email operations. Users need c
 3. Users can create new calendar events with attendees
 4. Users can update existing calendar events
 5. Users can delete/cancel calendar events
-6. All operations work with the same OAuth flow as email tools
-7. Calendar operations comply with Skyscanner production standards
+6. Users can find optimal meeting times based on attendee availability
+7. All operations work with the same OAuth flow as email tools
+8. Calendar operations comply with Skyscanner production standards
 
 ---
 
@@ -49,7 +51,8 @@ MicrosoftService (existing)
     ├── get-event
     ├── create-event
     ├── update-event
-    └── delete-event
+    ├── delete-event
+    └── find-meeting-times
 ```
 
 ### API Endpoints
@@ -60,6 +63,7 @@ Microsoft Graph API endpoints to be used:
 - `POST /me/calendar/events` - Create calendar event
 - `PATCH /me/calendar/events/{id}` - Update calendar event
 - `DELETE /me/calendar/events/{id}` - Delete calendar event
+- `POST /me/findMeetingTimes` - Find optimal meeting times
 
 ### OAuth Scopes
 
@@ -191,6 +195,37 @@ scopes: [
   - Existing tokens continue to work (users re-auth to get calendar access)
   - Service initialization checks for calendar scopes
 
+### FR-025: Find Meeting Times
+- **Priority**: P1
+- **Description**: Find optimal meeting times based on attendee availability using Microsoft Graph findMeetingTimes API
+- **Input Parameters**:
+  - `attendees` (required): Array of email addresses for required attendees
+  - `optionalAttendees` (optional): Array of email addresses for optional attendees
+  - `meetingDuration` (required): Meeting duration in minutes
+  - `maxCandidates` (optional): Max number of suggestions (default: 5, max: 10)
+  - `timeConstraintStart` (optional): Start of search window in ISO 8601 (default: now)
+  - `timeConstraintEnd` (optional): End of search window in ISO 8601 (default: 5 days from start)
+  - `minimumAttendeePercentage` (optional): Minimum percentage of attendees required (0-100, default: 100)
+- **Output**:
+  - Success status
+  - Number of suggestions found
+  - Array of time slot suggestions with:
+    - Confidence score (0-100)
+    - Suggestion reason
+    - Time slot (start, end, timezone)
+    - Organizer availability
+    - Per-attendee availability status
+  - Empty suggestions reason (if no slots found)
+  - Search parameters used
+- **Acceptance**:
+  - Analyzes calendars of all attendees
+  - Returns slots where required attendees are available
+  - Respects optional attendee status
+  - Caps suggestions at maximum
+  - Provides confidence scores and reasoning
+  - Works within specified time windows
+  - Handles timezone conversions
+
 ---
 
 ## User Stories
@@ -249,13 +284,27 @@ scopes: [
 - Results limited to specified range
 - Works with past, present, and future dates
 
+### User Story 6: Find Optimal Meeting Times (P1)
+**As a** user
+**I want to** find meeting times when all required attendees are available
+**So that** I can schedule meetings efficiently without checking calendars manually
+
+**Acceptance Criteria**:
+- User provides list of required attendees and meeting duration
+- System analyzes attendee calendars for availability
+- Returns ranked suggestions with confidence scores
+- Shows per-attendee availability for each slot
+- Supports optional attendees who don't block suggestions
+- Allows custom time windows for search
+- Provides reasons when no suitable times found
+
 ---
 
 ## Implementation Plan
 
 ### Phase 1: Add Calendar Tools to MicrosoftService
 1. Update `src/services/microsoft/microsoft-service.ts`:
-   - Add 5 new tool definitions in getTools()
+   - Add 6 new tool definitions in getTools()
    - Implement private handler methods for each tool
 2. Update OAuth scopes in `src/mcp-server/service-registration.ts`
 3. Add calendar-specific types if needed
@@ -266,13 +315,15 @@ scopes: [
 3. `createEvent()`: POST /me/calendar/events
 4. `updateEvent()`: PATCH /me/calendar/events/{id}
 5. `deleteEvent()`: DELETE /me/calendar/events/{id}
+6. `findMeetingTimes()`: POST /me/findMeetingTimes
 
 ### Phase 3: Testing
 1. Add unit tests to `src/services/microsoft/__tests__/microsoft-service.test.ts`
-2. Test all 5 calendar tools in test mode
+2. Test all 6 calendar tools in test mode
 3. Test date parsing and timezone handling
 4. Test attendee management
-5. Test error scenarios (not found, permission denied)
+5. Test meeting time suggestions with various configurations
+6. Test error scenarios (not found, permission denied)
 
 ### Phase 4: Documentation
 1. Update README.md with calendar tool examples
@@ -286,7 +337,7 @@ scopes: [
 ### Unit Tests (Target: 100% coverage of new code)
 
 **Calendar Tool Registration**:
-- ✓ getTools() returns 8 tools total (3 email + 5 calendar)
+- ✓ getTools() returns 9 tools total (3 email + 6 calendar)
 - ✓ Each calendar tool has correct name and schema
 - ✓ Required parameters are marked as required
 
@@ -326,6 +377,16 @@ scopes: [
 - ✓ Skips cancellation when requested
 - ✓ Throws error if event not found
 
+**Find Meeting Times Tool**:
+- ✓ Finds meeting times for required attendees
+- ✓ Supports optional attendees
+- ✓ Respects custom time constraints
+- ✓ Caps maxCandidates at 10
+- ✓ Uses default meeting duration of 60 minutes
+- ✓ Supports custom minimum attendee percentage
+- ✓ Requires attendees parameter
+- ✓ Requires meetingDuration parameter
+
 ### Integration Tests (Manual)
 
 **OAuth Flow**:
@@ -341,11 +402,14 @@ scopes: [
 - [ ] Update event time and attendees
 - [ ] Delete test event
 - [ ] Verify notifications sent to attendees
+- [ ] Find meeting times for multiple attendees
+- [ ] Verify confidence scores and availability details
 
 **Error Handling**:
 - [ ] Invalid event ID returns proper error
 - [ ] Invalid datetime format rejected
 - [ ] Unauthorized access handled gracefully
+- [ ] No available meeting times handled gracefully
 
 ---
 
@@ -363,7 +427,7 @@ scopes: [
 - Proper error handling for permission denied scenarios
 
 ### OAuth Scope Justification
-- `Calendars.Read`: Required for list-events and get-event
+- `Calendars.Read`: Required for list-events, get-event, and find-meeting-times
 - `Calendars.ReadWrite`: Required for create/update/delete operations
 - Scopes follow principle of least privilege
 
@@ -386,16 +450,16 @@ scopes: [
 ## Success Metrics
 
 ### Development Metrics
-- [ ] All 5 calendar tools implemented
-- [ ] Unit test coverage ≥ 80% for new code
-- [ ] Zero ESLint/TypeScript errors
-- [ ] Build passes successfully
+- [x] All 6 calendar tools implemented
+- [x] Unit test coverage ≥ 80% for new code
+- [x] Zero ESLint/TypeScript errors
+- [x] Build passes successfully
 
 ### Functional Metrics
-- [ ] All user stories acceptance criteria met
-- [ ] All functional requirements implemented
+- [x] All user stories acceptance criteria met
+- [x] All functional requirements implemented
 - [ ] Manual integration tests pass
-- [ ] OAuth scope update deployed
+- [x] OAuth scope update deployed
 
 ---
 

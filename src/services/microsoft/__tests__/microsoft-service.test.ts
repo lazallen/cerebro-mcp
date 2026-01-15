@@ -574,9 +574,9 @@ describe('MicrosoftService', () => {
     });
 
     describe('tool registration', () => {
-      it('should return 8 total tools (3 email + 5 calendar)', () => {
+      it('should return 9 total tools (3 email + 6 calendar)', () => {
         const tools = service.getTools();
-        expect(tools).toHaveLength(8);
+        expect(tools).toHaveLength(9);
       });
 
       it('should have all calendar tools defined', () => {
@@ -587,6 +587,7 @@ describe('MicrosoftService', () => {
           'create-event',
           'update-event',
           'delete-event',
+          'find-meeting-times',
         ];
 
         calendarTools.forEach((toolName) => {
@@ -594,6 +595,120 @@ describe('MicrosoftService', () => {
           expect(tool).toBeDefined();
           expect(tool?.handler).toBeDefined();
         });
+      });
+    });
+
+    describe('find-meeting-times tool', () => {
+      it('should find meeting times for attendees', async () => {
+        const tools = service.getTools();
+        const findMeetingTimes = tools.find((t) => t.name === 'find-meeting-times');
+
+        const result = await findMeetingTimes?.handler({
+          attendees: ['user1@example.com', 'user2@example.com'],
+          meetingDuration: 60,
+        });
+
+        expect(result).toHaveProperty('success');
+        expect((result as { success: boolean }).success).toBe(true);
+        expect(result).toHaveProperty('suggestions');
+        expect(result).toHaveProperty('suggestionsCount');
+      });
+
+      it('should support optional attendees', async () => {
+        const tools = service.getTools();
+        const findMeetingTimes = tools.find((t) => t.name === 'find-meeting-times');
+
+        const result = await findMeetingTimes?.handler({
+          attendees: ['user1@example.com'],
+          optionalAttendees: ['user2@example.com', 'user3@example.com'],
+          meetingDuration: 30,
+        });
+
+        expect(result).toHaveProperty('success');
+        expect(result).toHaveProperty('searchParameters');
+      });
+
+      it('should respect custom time constraints', async () => {
+        const tools = service.getTools();
+        const findMeetingTimes = tools.find((t) => t.name === 'find-meeting-times');
+
+        const result = await findMeetingTimes?.handler({
+          attendees: ['user1@example.com'],
+          meetingDuration: 60,
+          timeConstraintStart: '2026-01-20T09:00:00Z',
+          timeConstraintEnd: '2026-01-20T17:00:00Z',
+        });
+
+        expect(result).toHaveProperty('searchParameters');
+        const params = (
+          result as { searchParameters: { timeWindow: { start: string; end: string } } }
+        ).searchParameters;
+        expect(params.timeWindow).toBeDefined();
+      });
+
+      it('should cap maxCandidates at 10', async () => {
+        const tools = service.getTools();
+        const findMeetingTimes = tools.find((t) => t.name === 'find-meeting-times');
+
+        const result = await findMeetingTimes?.handler({
+          attendees: ['user1@example.com'],
+          meetingDuration: 60,
+          maxCandidates: 20,
+        });
+
+        expect(result).toHaveProperty('suggestions');
+        expect((result as { suggestions: unknown[] }).suggestions.length).toBeLessThanOrEqual(10);
+      });
+
+      it('should use default meeting duration of 60 minutes', async () => {
+        const tools = service.getTools();
+        const findMeetingTimes = tools.find((t) => t.name === 'find-meeting-times');
+
+        const result = await findMeetingTimes?.handler({
+          attendees: ['user1@example.com'],
+          meetingDuration: 60,
+        });
+
+        expect(result).toHaveProperty('searchParameters');
+        expect(
+          (result as { searchParameters: { meetingDuration: number } }).searchParameters
+            .meetingDuration
+        ).toBe(60);
+      });
+
+      it('should support custom minimum attendee percentage', async () => {
+        const tools = service.getTools();
+        const findMeetingTimes = tools.find((t) => t.name === 'find-meeting-times');
+
+        const result = await findMeetingTimes?.handler({
+          attendees: ['user1@example.com', 'user2@example.com', 'user3@example.com'],
+          meetingDuration: 60,
+          minimumAttendeePercentage: 75,
+        });
+
+        expect(result).toHaveProperty('success');
+      });
+
+      it('should require attendees parameter', async () => {
+        const tools = service.getTools();
+        const findMeetingTimes = tools.find((t) => t.name === 'find-meeting-times');
+
+        await expect(
+          findMeetingTimes?.handler({
+            meetingDuration: 60,
+          })
+        ).rejects.toThrow();
+      });
+
+      it('should require meetingDuration parameter', async () => {
+        const tools = service.getTools();
+        const findMeetingTimes = tools.find((t) => t.name === 'find-meeting-times');
+
+        await expect(
+          findMeetingTimes?.handler({
+            attendees: ['user1@example.com'],
+          })
+        ).rejects.toThrow();
       });
     });
   });
