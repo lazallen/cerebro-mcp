@@ -7,6 +7,8 @@
 
 import { ServiceRegistry } from '../common/service-registry';
 import { logger } from '../common';
+import { MicrosoftService } from '../services/microsoft';
+import { ServiceConfig } from '../types/service';
 
 /**
  * Check if Microsoft 365 credentials are configured
@@ -30,7 +32,6 @@ export function hasSlackCredentials(): boolean {
  * Register all available services based on environment configuration
  * @param registry Service registry to register services with
  */
-// eslint-disable-next-line @typescript-eslint/require-await
 export async function registerServices(registry: ServiceRegistry): Promise<void> {
   logger.info({
     operation: 'service_registration_start',
@@ -41,11 +42,39 @@ export async function registerServices(registry: ServiceRegistry): Promise<void>
 
   // Microsoft 365
   if (hasMicrosoftCredentials()) {
-    // TODO: Implement in Feature 004
-    logger.info({
-      service: 'microsoft',
-      msg: 'Microsoft 365 credentials found (service implementation pending Feature 004)',
-    });
+    try {
+      const tenantId = process.env['MICROSOFT_TENANT_ID'] ?? '';
+      const microsoftConfig: ServiceConfig = {
+        name: 'microsoft',
+        displayName: 'Microsoft 365',
+        apiEndpoint: 'https://graph.microsoft.com/v1.0',
+        oauth: {
+          clientId: process.env['MICROSOFT_CLIENT_ID'] ?? '',
+          clientSecret: process.env['MICROSOFT_CLIENT_SECRET'] ?? '',
+          tenantId,
+          redirectUri: 'http://localhost:3333/auth/microsoft/callback',
+          scopes: ['offline_access', 'Mail.Read', 'Mail.Send', 'User.Read'],
+          authEndpoint: `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize`,
+          tokenEndpoint: `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`,
+        },
+        tokenStorePath: './.tokens/microsoft-tokens.json',
+      };
+
+      const microsoftService = new MicrosoftService(microsoftConfig);
+      await registry.register(microsoftService);
+      registeredCount++;
+
+      logger.info({
+        service: 'microsoft',
+        msg: 'Microsoft 365 service registered successfully',
+      });
+    } catch (error) {
+      logger.error({
+        service: 'microsoft',
+        error: error instanceof Error ? error.message : String(error),
+        msg: 'Failed to register Microsoft 365 service',
+      });
+    }
   } else {
     logger.info({
       service: 'microsoft',
