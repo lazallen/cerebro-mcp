@@ -286,4 +286,315 @@ describe('MicrosoftService', () => {
       await expect(service.shutdown()).resolves.not.toThrow();
     });
   });
+
+  describe('calendar tools', () => {
+    beforeEach(async () => {
+      await service.initialize();
+    });
+
+    describe('list-events tool', () => {
+      it('should list calendar events', async () => {
+        const tools = service.getTools();
+        const listEvents = tools.find((t) => t.name === 'list-events');
+
+        const result = await listEvents?.handler({});
+        expect(result).toHaveProperty('events');
+        expect(result).toHaveProperty('count');
+        expect(result).toHaveProperty('startDate');
+        expect(result).toHaveProperty('endDate');
+        expect((result as { events: unknown[] }).events).toBeInstanceOf(Array);
+      });
+
+      it('should respect custom date range', async () => {
+        const tools = service.getTools();
+        const listEvents = tools.find((t) => t.name === 'list-events');
+
+        const startDate = '2026-01-20T00:00:00Z';
+        const endDate = '2026-01-27T00:00:00Z';
+
+        const result = await listEvents?.handler({
+          startDate,
+          endDate,
+        });
+
+        expect(result).toHaveProperty('startDate');
+        expect(result).toHaveProperty('endDate');
+      });
+
+      it('should cap count at 100', async () => {
+        const tools = service.getTools();
+        const listEvents = tools.find((t) => t.name === 'list-events');
+
+        const result = await listEvents?.handler({ count: 200 });
+        expect((result as { count: number }).count).toBeLessThanOrEqual(100);
+      });
+    });
+
+    describe('get-event tool', () => {
+      it('should get event by ID', async () => {
+        const tools = service.getTools();
+        const getEvent = tools.find((t) => t.name === 'get-event');
+
+        const result = await getEvent?.handler({ eventId: 'test-event-id' });
+        expect(result).toBeDefined();
+        expect(typeof result).toBe('object');
+      });
+
+      it('should require eventId parameter', async () => {
+        const tools = service.getTools();
+        const getEvent = tools.find((t) => t.name === 'get-event');
+
+        await expect(getEvent?.handler({})).rejects.toThrow();
+      });
+    });
+
+    describe('create-event tool', () => {
+      it('should create basic event', async () => {
+        const tools = service.getTools();
+        const createEvent = tools.find((t) => t.name === 'create-event');
+
+        const result = await createEvent?.handler({
+          subject: 'Test Event',
+          startDateTime: '2026-01-20T10:00:00Z',
+          endDateTime: '2026-01-20T11:00:00Z',
+        });
+
+        expect(result).toHaveProperty('success');
+        expect((result as { success: boolean }).success).toBe(true);
+        expect(result).toHaveProperty('eventId');
+      });
+
+      it('should create event with attendees', async () => {
+        const tools = service.getTools();
+        const createEvent = tools.find((t) => t.name === 'create-event');
+
+        const result = await createEvent?.handler({
+          subject: 'Meeting with Team',
+          startDateTime: '2026-01-20T14:00:00Z',
+          endDateTime: '2026-01-20T15:00:00Z',
+          attendees: ['test1@example.com', 'test2@example.com'],
+        });
+
+        expect(result).toHaveProperty('success');
+        expect((result as { success: boolean }).success).toBe(true);
+      });
+
+      it('should create online meeting when requested', async () => {
+        const tools = service.getTools();
+        const createEvent = tools.find((t) => t.name === 'create-event');
+
+        const result = await createEvent?.handler({
+          subject: 'Teams Meeting',
+          startDateTime: '2026-01-20T10:00:00Z',
+          endDateTime: '2026-01-20T11:00:00Z',
+          isOnlineMeeting: true,
+        });
+
+        expect(result).toHaveProperty('success');
+        expect((result as { success: boolean }).success).toBe(true);
+      });
+
+      it('should create all-day event', async () => {
+        const tools = service.getTools();
+        const createEvent = tools.find((t) => t.name === 'create-event');
+
+        const result = await createEvent?.handler({
+          subject: 'All Day Event',
+          startDateTime: '2026-01-20T00:00:00Z',
+          endDateTime: '2026-01-20T23:59:59Z',
+          isAllDay: true,
+        });
+
+        expect(result).toHaveProperty('success');
+        expect((result as { success: boolean }).success).toBe(true);
+      });
+
+      it('should support custom timezones', async () => {
+        const tools = service.getTools();
+        const createEvent = tools.find((t) => t.name === 'create-event');
+
+        const result = await createEvent?.handler({
+          subject: 'Event with Timezone',
+          startDateTime: '2026-01-20T10:00:00',
+          endDateTime: '2026-01-20T11:00:00',
+          startTimeZone: 'America/New_York',
+          endTimeZone: 'America/New_York',
+        });
+
+        expect(result).toHaveProperty('success');
+        expect((result as { success: boolean }).success).toBe(true);
+      });
+
+      it('should require subject parameter', async () => {
+        const tools = service.getTools();
+        const createEvent = tools.find((t) => t.name === 'create-event');
+
+        await expect(
+          createEvent?.handler({
+            startDateTime: '2026-01-20T10:00:00Z',
+            endDateTime: '2026-01-20T11:00:00Z',
+          })
+        ).rejects.toThrow();
+      });
+
+      it('should require startDateTime parameter', async () => {
+        const tools = service.getTools();
+        const createEvent = tools.find((t) => t.name === 'create-event');
+
+        await expect(
+          createEvent?.handler({
+            subject: 'Test Event',
+            endDateTime: '2026-01-20T11:00:00Z',
+          })
+        ).rejects.toThrow();
+      });
+
+      it('should require endDateTime parameter', async () => {
+        const tools = service.getTools();
+        const createEvent = tools.find((t) => t.name === 'create-event');
+
+        await expect(
+          createEvent?.handler({
+            subject: 'Test Event',
+            startDateTime: '2026-01-20T10:00:00Z',
+          })
+        ).rejects.toThrow();
+      });
+    });
+
+    describe('update-event tool', () => {
+      it('should update event subject', async () => {
+        const tools = service.getTools();
+        const updateEvent = tools.find((t) => t.name === 'update-event');
+
+        const result = await updateEvent?.handler({
+          eventId: 'test-event-id',
+          subject: 'Updated Subject',
+        });
+
+        expect(result).toHaveProperty('success');
+        expect((result as { success: boolean }).success).toBe(true);
+      });
+
+      it('should update event time', async () => {
+        const tools = service.getTools();
+        const updateEvent = tools.find((t) => t.name === 'update-event');
+
+        const result = await updateEvent?.handler({
+          eventId: 'test-event-id',
+          startDateTime: '2026-01-21T10:00:00Z',
+          endDateTime: '2026-01-21T11:00:00Z',
+        });
+
+        expect(result).toHaveProperty('success');
+        expect((result as { success: boolean }).success).toBe(true);
+      });
+
+      it('should update attendees', async () => {
+        const tools = service.getTools();
+        const updateEvent = tools.find((t) => t.name === 'update-event');
+
+        const result = await updateEvent?.handler({
+          eventId: 'test-event-id',
+          attendees: ['new1@example.com', 'new2@example.com'],
+        });
+
+        expect(result).toHaveProperty('success');
+        expect(result).toHaveProperty('notifiedAttendees');
+      });
+
+      it('should support partial updates', async () => {
+        const tools = service.getTools();
+        const updateEvent = tools.find((t) => t.name === 'update-event');
+
+        const result = await updateEvent?.handler({
+          eventId: 'test-event-id',
+          location: 'New Location',
+        });
+
+        expect(result).toHaveProperty('success');
+        expect((result as { success: boolean }).success).toBe(true);
+      });
+
+      it('should require eventId parameter', async () => {
+        const tools = service.getTools();
+        const updateEvent = tools.find((t) => t.name === 'update-event');
+
+        await expect(
+          updateEvent?.handler({
+            subject: 'Updated Subject',
+          })
+        ).rejects.toThrow();
+      });
+    });
+
+    describe('delete-event tool', () => {
+      it('should delete event successfully', async () => {
+        const tools = service.getTools();
+        const deleteEvent = tools.find((t) => t.name === 'delete-event');
+
+        const result = await deleteEvent?.handler({
+          eventId: 'test-event-id',
+        });
+
+        expect(result).toHaveProperty('success');
+        expect((result as { success: boolean }).success).toBe(true);
+      });
+
+      it('should send cancellation by default', async () => {
+        const tools = service.getTools();
+        const deleteEvent = tools.find((t) => t.name === 'delete-event');
+
+        const result = await deleteEvent?.handler({
+          eventId: 'test-event-id',
+        });
+
+        expect(result).toHaveProperty('notifiedAttendees');
+      });
+
+      it('should skip cancellation when requested', async () => {
+        const tools = service.getTools();
+        const deleteEvent = tools.find((t) => t.name === 'delete-event');
+
+        const result = await deleteEvent?.handler({
+          eventId: 'test-event-id',
+          sendCancellation: false,
+        });
+
+        expect(result).toHaveProperty('notifiedAttendees');
+        expect((result as { notifiedAttendees: string[] }).notifiedAttendees).toHaveLength(0);
+      });
+
+      it('should require eventId parameter', async () => {
+        const tools = service.getTools();
+        const deleteEvent = tools.find((t) => t.name === 'delete-event');
+
+        await expect(deleteEvent?.handler({})).rejects.toThrow();
+      });
+    });
+
+    describe('tool registration', () => {
+      it('should return 8 total tools (3 email + 5 calendar)', () => {
+        const tools = service.getTools();
+        expect(tools).toHaveLength(8);
+      });
+
+      it('should have all calendar tools defined', () => {
+        const tools = service.getTools();
+        const calendarTools = [
+          'list-events',
+          'get-event',
+          'create-event',
+          'update-event',
+          'delete-event',
+        ];
+
+        calendarTools.forEach((toolName) => {
+          const tool = tools.find((t) => t.name === toolName);
+          expect(tool).toBeDefined();
+          expect(tool?.handler).toBeDefined();
+        });
+      });
+    });
+  });
 });
