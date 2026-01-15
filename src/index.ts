@@ -4,10 +4,14 @@
  * Main entry point for the MCP server.
  */
 
-import { logger, globalConfig } from './common';
+import { logger, globalConfig, ServiceRegistry } from './common';
 import { OAuthServer } from './auth-server';
+import { MCPServer } from './mcp-server';
+import { registerServices } from './mcp-server/service-registration';
 
 let oauthServer: OAuthServer | undefined;
+let mcpServer: MCPServer | undefined;
+const serviceRegistry = new ServiceRegistry();
 
 async function main(): Promise<void> {
   logger.info(
@@ -19,28 +23,33 @@ async function main(): Promise<void> {
     `Starting ${globalConfig.serverName} v${globalConfig.serverVersion}`
   );
 
-  // Start OAuth authentication server
   try {
-    oauthServer = new OAuthServer();
+    // 1. Initialize service registry and register available services
+    await registerServices(serviceRegistry);
 
-    // Note: Services will be registered dynamically in future features
-    // For now, the server starts with no services configured
+    // 2. Start OAuth authentication server (port 3333)
+    oauthServer = new OAuthServer();
     logger.info({
       operation: 'oauth_server_init',
-      msg: 'OAuth server initialized. Services will be registered when service implementations are added.',
+      msg: 'OAuth server initialized',
     });
-
     await oauthServer.start();
+
+    // 3. Start MCP server (stdio transport)
+    mcpServer = new MCPServer(serviceRegistry);
+    await mcpServer.start();
 
     logger.info({
       operation: 'server_ready',
-      msg: 'Server ready. OAuth authentication server running.',
+      oauthPort: globalConfig.authServerPort,
+      servicesCount: serviceRegistry.list().length,
+      msg: 'Server ready. OAuth server and MCP server running.',
     });
   } catch (error) {
     logger.error({
-      operation: 'oauth_server_start_error',
+      operation: 'server_start_error',
       error: error instanceof Error ? error.message : String(error),
-      msg: 'Failed to start OAuth server',
+      msg: 'Failed to start server',
     });
     throw error;
   }
@@ -50,17 +59,41 @@ async function main(): Promise<void> {
 async function shutdown(): Promise<void> {
   logger.info({ operation: 'shutdown', msg: 'Shutting down server...' });
 
-  if (oauthServer) {
+  // Stop MCP server first (close stdio transport)
+  if (mcpServer) {
     try {
-      await oauthServer.stop();
+      await mcpServer.stop();
     } catch (error) {
       logger.error({
-        operation: 'shutdown_error',
+        operation: 'mcp_shutdown_error',
         error: error instanceof Error ? error.message : String(error),
       });
     }
   }
 
+  // Stop OAuth server
+  if (oauthServer) {
+    try {
+      await oauthServer.stop();
+    } catch (error) {
+      logger.error({
+        operation: 'oauth_shutdown_error',
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  // Shutdown all services
+  try {
+    await serviceRegistry.shutdownAll();
+  } catch (error) {
+    logger.error({
+      operation: 'service_shutdown_error',
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  logger.info({ operation: 'shutdown_complete', msg: 'Server shutdown complete' });
   process.exit(0);
 }
 

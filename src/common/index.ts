@@ -8,3 +8,4 @@ export * from './base-api-client';
 export * from './base-token-storage';
 export * from './config';
 export * from './logger';
+export * from './service-registry';
