@@ -52,6 +52,21 @@ This project is under active development following SpecKit methodology with test
   - User identity retrieval
   - Reminder management (list, create, complete)
 
+- ✅ **Feature 007**: Slack OAuth Fixes & Enhancements
+  - Fixed Slack OAuth v2 parameter issues (`user_scope` vs `scope`)
+  - Corrected scope delimiter handling (comma-separated for Slack)
+  - Fixed token parsing from `authed_user.access_token`
+  - Enhanced OAuth server to support diverse provider patterns
+  - Configurable scope delimiters per service
+
+- ✅ **Feature 008**: Authentication Dashboard & Home Page
+  - Web-based authentication dashboard for all services
+  - Real-time service status display (connected, expired, requires auth, error)
+  - One-click authentication buttons for each service
+  - Token validation and expiration status
+  - Responsive HTML interface with CSS styling
+  - Service configuration display and troubleshooting information
+
 ## Features
 
 - **Multi-Service Architecture**: Extensible design for integrating multiple services
@@ -181,8 +196,10 @@ npm run type-check
 
 ### Testing
 
+The project includes comprehensive test coverage for core modules:
+
 ```bash
-# Run tests
+# Run all tests
 npm test
 
 # Run tests in watch mode
@@ -190,6 +207,51 @@ npm test:watch
 
 # Run tests with coverage
 npm test:coverage
+```
+
+#### Test Structure
+
+Tests are organized alongside source code in `__tests__` directories:
+
+```
+src/
+├── common/
+│   └── __tests__/
+│       └── config.test.ts          # Configuration utilities (8 tests)
+├── mcp-server/
+│   └── __tests__/
+│       ├── error-mapper.test.ts    # Error mapping & custom errors (16 tests)
+│       ├── mcp-server.test.ts      # MCP server initialization (6 tests)
+│       └── service-registration.test.ts  # Service registration (10 tests)
+└── services/
+    ├── microsoft/
+    │   └── __tests__/
+    │       └── microsoft-service.test.ts
+    └── slack/
+        └── __tests__/
+            └── slack-service.test.ts
+```
+
+#### Test Coverage
+
+**Total: 40+ tests across core modules**
+
+- **Error Mapper Tests** (16 tests): JSON-RPC error mapping, custom error classes
+- **Service Registration Tests** (10 tests): Credential validation, multi-service registration
+- **MCP Server Tests** (6 tests): Server initialization, registry integration
+- **Config Tests** (8 tests): Environment variable validation, default values
+
+#### Running Specific Tests
+
+```bash
+# Run only error-mapper tests
+npm test -- error-mapper
+
+# Run tests in a specific directory
+npm test -- src/mcp-server/__tests__
+
+# Run tests matching a pattern
+npm test -- --testNamePattern="should register"
 ```
 
 ## Project Structure
@@ -207,15 +269,43 @@ cerebro-mcp-ts/
 │   │   ├── base-api-client.ts     # Generic API client
 │   │   ├── base-token-storage.ts  # OAuth token management
 │   │   ├── logger.ts              # Structured logging
-│   │   └── config.ts              # Global configuration
+│   │   ├── config.ts              # Global configuration
+│   │   └── __tests__/             # Common module tests
+│   │
+│   ├── mcp-server/      # MCP server implementation
+│   │   ├── mcp-server.ts          # Main server implementation
+│   │   ├── error-mapper.ts        # Error mapping and custom errors
+│   │   ├── service-registration.ts # Service registration logic
+│   │   └── __tests__/             # MCP server tests
+│   │
+│   ├── services/        # Service integrations
+│   │   ├── microsoft/              # Microsoft 365 integration
+│   │   │   ├── api-client.ts
+│   │   │   ├── microsoft-service.ts
+│   │   │   ├── token-storage.ts
+│   │   │   └── __tests__/
+│   │   └── slack/                  # Slack integration
+│   │       ├── api-client.ts
+│   │       ├── slack-service.ts
+│   │       ├── token-storage.ts
+│   │       └── __tests__/
+│   │
+│   ├── auth-server/     # OAuth authentication server
+│   │   ├── index.ts
+│   │   └── oauth-server.ts
 │   │
 │   ├── utils/          # Utility functions (future)
 │   └── index.ts        # Main entry point
 │
-├── tests/              # Test files
+├── tests/              # Integration and e2e tests
 │   ├── unit/          # Unit tests
 │   ├── integration/   # Integration tests
 │   └── fixtures/      # Test fixtures
+│
+├── specs/             # SpecKit feature specifications
+├── .specify/          # SpecKit configuration
+├── dist/              # Compiled JavaScript (generated)
+└── docs/              # Documentation (future)
 │
 ├── specs/             # SpecKit feature specifications
 ├── .specify/          # SpecKit configuration
