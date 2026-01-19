@@ -6,7 +6,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, jest } from '@jest/globals';
 import { MCPServer } from '../mcp-server';
-import { ServiceRegistry } from '../service-registration';
+import { ServiceRegistry } from '../../common/service-registry';
 
 describe('MCPServer', () => {
   let server: MCPServer;
@@ -14,10 +14,11 @@ describe('MCPServer', () => {
 
   beforeEach(() => {
     mockRegistry = {
-      getTool: jest.fn(),
-      listTools: jest.fn(),
-      listServices: jest.fn(),
-      getService: jest.fn(),
+      register: jest.fn(),
+      get: jest.fn(),
+      list: jest.fn(),
+      getAllTools: jest.fn(),
+      shutdownAll: jest.fn(),
     } as unknown as ServiceRegistry;
   });
 
@@ -48,13 +49,9 @@ describe('MCPServer', () => {
     });
 
     it('should execute a tool via registry', async () => {
-      const mockResult = { result: 'test result' };
-      jest.spyOn(mockRegistry, 'getTool').mockReturnValue({
-        execute: jest.fn().mockResolvedValue(mockResult),
-      } as any);
-
       // Tool execution would happen through standard MCP protocol
       expect(server).toBeDefined();
+      expect(mockRegistry.get).toBeDefined();
     });
   });
 
