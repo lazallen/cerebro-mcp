@@ -39,16 +39,7 @@
     "isolatedModules": true,
 
     /* Completeness */
-    "skipLibCheck": true,
-
-    /* Path Mapping */
-    "baseUrl": ".",
-    "paths": {
-      "@/*": ["src/*"],
-      "@types/*": ["src/types/*"],
-      "@common/*": ["src/common/*"],
-      "@utils/*": ["src/utils/*"]
-    }
+    "skipLibCheck": true
   },
   "include": [
     "src/**/*",

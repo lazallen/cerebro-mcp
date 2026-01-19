@@ -1,15 +1,9 @@
 module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'node',
-  roots: ['<rootDir>/tests'],
+  roots: ['<rootDir>/tests', '<rootDir>/src'],
   testMatch: ['**/*.test.ts'],
   moduleFileExtensions: ['ts', 'js', 'json'],
-  moduleNameMapper: {
-    '^@/(.*)$': '<rootDir>/src/$1',
-    '^@types/(.*)$': '<rootDir>/src/types/$1',
-    '^@common/(.*)$': '<rootDir>/src/common/$1',
-    '^@utils/(.*)$': '<rootDir>/src/utils/$1',
-  },
   collectCoverageFrom: [
     'src/**/*.ts',
     '!src/**/*.d.ts',

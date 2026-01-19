@@ -2,7 +2,6 @@
  * Microsoft Service Tests
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { MicrosoftService } from '../microsoft-service';
 import { ServiceConfig } from '../../../types/service';
 import * as fs from 'fs/promises';

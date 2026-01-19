@@ -4,10 +4,10 @@
  * Comprehensive tests for the unified OAuth authentication server
  */
 
-import { OAuthServer, AuthServiceRegistration } from '@/auth-server/oauth-server';
-import { BaseTokenStorage } from '@/common/base-token-storage';
-import { ServiceConfig } from '@/types/service';
-import { TokenData } from '@/types/token';
+import { OAuthServer, AuthServiceRegistration } from '../../../src/auth-server/oauth-server';
+import { BaseTokenStorage } from '../../../src/common/base-token-storage';
+import { ServiceConfig } from '../../../src/types/service';
+import { TokenData } from '../../../src/types/token';
 import * as http from 'http';
 
 /**
