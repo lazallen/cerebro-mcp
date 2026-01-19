@@ -20,6 +20,7 @@ import * as querystring from 'querystring';
 import { logger, globalConfig } from '../common';
 import { ServiceConfig } from '../types/service';
 import { BaseTokenStorage } from '../common/base-token-storage';
+import { isTokenExpired } from '../types/token';
 
 /**
  * Service registration for auth server
@@ -44,6 +45,32 @@ export interface ServiceRoute {
 
   /** Action (e.g., 'login', 'callback') */
   action: string;
+}
+
+/**
+ * Service authentication status for dashboard
+ */
+export interface ServiceStatus {
+  /** Service name (e.g., 'microsoft', 'slack') */
+  serviceName: string;
+
+  /** Display name (e.g., 'Microsoft 365', 'Slack') */
+  displayName: string;
+
+  /** Login URL for this service */
+  loginUrl: string;
+
+  /** Authentication state */
+  state: 'connected' | 'expired' | 'requires_auth' | 'error';
+
+  /** Status message */
+  message: string;
+
+  /** Token expiration timestamp (milliseconds since epoch) */
+  expiresAt?: number;
+
+  /** Granted OAuth scopes */
+  scopes?: string[];
 }
 
 /**
@@ -303,7 +330,7 @@ export class OAuthServer {
           this.render404(res);
         }
       } else if (pathname === '/') {
-        this.renderHomePage(res);
+        await this.renderHomePage(res);
       } else {
         this.render404(res);
       }
@@ -554,22 +581,157 @@ export class OAuthServer {
   }
 
   /**
-   * Render home page
+   * Check authentication status for a service
+   * @param serviceName Service name
+   * @param registration Service registration
+   * @returns Service status object
    */
-  private renderHomePage(res: http.ServerResponse): void {
-    const serviceList = Array.from(this.services.entries())
-      .map(([key, svc]) => `<li><strong>${svc.name}</strong> (${key})</li>`)
-      .join('');
+  private async checkServiceAuthStatus(
+    serviceName: string,
+    registration: AuthServiceRegistration
+  ): Promise<ServiceStatus> {
+    const status: ServiceStatus = {
+      serviceName,
+      displayName: registration.name,
+      loginUrl: `${this.protocol}://localhost:${this.port}/auth/${serviceName}/login`,
+      state: 'requires_auth',
+      message: 'Not authenticated',
+    };
+
+    try {
+      // Check if token file exists
+      const hasTokens = await registration.tokenStorage.hasTokens();
+
+      if (!hasTokens) {
+        return status;
+      }
+
+      // Load token data
+      const tokenData = registration.tokenStorage.getCurrentTokenData();
+
+      if (!tokenData) {
+        return status;
+      }
+
+      // Check if token is expired
+      if (isTokenExpired(tokenData, 5 * 60 * 1000)) {
+        status.state = 'expired';
+        status.message = 'Token expired - re-authentication required';
+        status.expiresAt = tokenData.expiresAt;
+      } else {
+        status.state = 'connected';
+        status.message = 'Connected';
+        status.expiresAt = tokenData.expiresAt;
+        status.scopes = tokenData.scopes;
+      }
+
+      return status;
+    } catch (error) {
+      status.state = 'error';
+      status.message = error instanceof Error ? error.message : 'Unknown error';
+      return status;
+    }
+  }
+
+  /**
+   * Get authentication status for all registered services
+   * @returns Array of service statuses
+   */
+  private async getServiceStatuses(): Promise<ServiceStatus[]> {
+    const statuses: ServiceStatus[] = [];
+
+    for (const [serviceName, registration] of this.services.entries()) {
+      const status = await this.checkServiceAuthStatus(serviceName, registration);
+      statuses.push(status);
+    }
+
+    return statuses;
+  }
+
+  /**
+   * Render a service card with status and authentication button
+   * @param status Service status object
+   * @returns HTML string for service card
+   */
+  private renderServiceCard(status: ServiceStatus): string {
+    const statusConfig = {
+      connected: {
+        badge: '✓ Connected',
+        color: '#5cb85c',
+        bgColor: '#d4edda',
+      },
+      expired: {
+        badge: '! Expired',
+        color: '#f0ad4e',
+        bgColor: '#fff3cd',
+      },
+      requires_auth: {
+        badge: '○ Not Authenticated',
+        color: '#6c757d',
+        bgColor: '#e9ecef',
+      },
+      error: {
+        badge: '✗ Error',
+        color: '#d9534f',
+        bgColor: '#f8d7da',
+      },
+    };
+
+    const config = statusConfig[status.state];
+
+    let details = `<p><strong>Status:</strong> ${status.message}</p>`;
+
+    if (status.expiresAt) {
+      const expiryDate = new Date(status.expiresAt);
+      details += `<p><strong>Expires:</strong> ${expiryDate.toLocaleString()}</p>`;
+    }
+
+    if (status.scopes && status.scopes.length > 0) {
+      details += `<p><strong>Scopes:</strong> ${status.scopes.join(', ')}</p>`;
+    }
+
+    return `
+      <div class="service-card" style="border-color: ${config.color};">
+        <div class="service-header">
+          <h2>${status.displayName}</h2>
+          <span class="status-badge" style="background-color: ${config.bgColor}; color: ${config.color};">
+            ${config.badge}
+          </span>
+        </div>
+        <div class="service-details">
+          ${details}
+        </div>
+        <div class="service-actions">
+          <a href="${status.loginUrl}" class="btn btn-primary">
+            ${status.state === 'connected' ? 'Re-authenticate' : 'Authenticate'}
+          </a>
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Render home page with authentication dashboard
+   */
+  private async renderHomePage(res: http.ServerResponse): Promise<void> {
+    const serviceStatuses = await this.getServiceStatuses();
+
+    const serviceCards =
+      serviceStatuses.length > 0
+        ? serviceStatuses.map((status) => this.renderServiceCard(status)).join('\n')
+        : '<p class="no-services"><em>No services configured. Please set service credentials in environment variables.</em></p>';
 
     const html = this.renderHtml(
-      'Unified Authentication Server',
-      'Unified Authentication Server',
+      'Cerebro MCP - Authentication Dashboard',
+      'Authentication Dashboard',
       `
-        <p>This server handles OAuth 2.0 authentication for multiple services.</p>
-        <p><strong>Loaded Services:</strong></p>
-        <ul>${serviceList || '<li><em>No services configured</em></li>'}</ul>
-        <p>Don't navigate here directly. Use authentication tools to start OAuth flow.</p>
-        <p><strong>Server running at:</strong> <code>${this.protocol}://localhost:${this.port}</code></p>
+        <div class="dashboard-intro">
+          <p>Manage OAuth authentication for all configured services.</p>
+          <p><strong>Server:</strong> <code>${this.protocol}://localhost:${this.port}</code></p>
+        </div>
+        <div class="service-grid">
+          ${serviceCards}
+        </div>
       `,
       'info'
     );
@@ -639,8 +801,17 @@ export class OAuthServer {
         <head>
           <title>${title}</title>
           <style>
-            body { font-family: Arial, sans-serif; max-width: 700px; margin: 0 auto; padding: 20px; }
-            h1 { color: ${color.heading}; }
+            body {
+              font-family: Arial, sans-serif;
+              max-width: 1200px;
+              margin: 0 auto;
+              padding: 20px;
+              background-color: #f5f5f5;
+            }
+            h1 {
+              color: ${color.heading};
+              margin-bottom: 10px;
+            }
             .content-box {
               background-color: ${color.bg};
               border: 1px solid ${color.border};
@@ -653,6 +824,99 @@ export class OAuthServer {
               padding: 2px 6px;
               border-radius: 4px;
               font-family: monospace;
+            }
+
+            /* Dashboard styles */
+            .dashboard-intro {
+              margin-bottom: 30px;
+            }
+            .service-grid {
+              display: grid;
+              grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+              gap: 20px;
+              margin-top: 20px;
+            }
+            .service-card {
+              background: white;
+              border: 2px solid #ddd;
+              border-radius: 8px;
+              padding: 20px;
+              box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+              transition: box-shadow 0.2s;
+            }
+            .service-card:hover {
+              box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+            }
+            .service-header {
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              margin-bottom: 15px;
+              gap: 15px;
+            }
+            .service-header h2 {
+              margin: 0;
+              font-size: 1.4em;
+              color: #333;
+            }
+            .status-badge {
+              padding: 6px 12px;
+              border-radius: 4px;
+              font-size: 0.9em;
+              font-weight: bold;
+              white-space: nowrap;
+            }
+            .service-details {
+              margin: 15px 0;
+              color: #666;
+            }
+            .service-details p {
+              margin: 8px 0;
+              line-height: 1.5;
+            }
+            .service-actions {
+              margin-top: 15px;
+              display: flex;
+              gap: 10px;
+            }
+            .btn {
+              display: inline-block;
+              padding: 10px 20px;
+              text-decoration: none;
+              border-radius: 4px;
+              font-weight: bold;
+              transition: all 0.2s;
+              text-align: center;
+            }
+            .btn-primary {
+              background-color: #0078d4;
+              color: white;
+            }
+            .btn-primary:hover {
+              background-color: #005a9e;
+            }
+            .no-services {
+              text-align: center;
+              padding: 40px;
+              color: #666;
+              font-size: 1.1em;
+            }
+
+            /* Responsive design */
+            @media (max-width: 768px) {
+              body {
+                padding: 10px;
+              }
+              .service-grid {
+                grid-template-columns: 1fr;
+              }
+              .service-header {
+                flex-direction: column;
+                align-items: flex-start;
+              }
+              .status-badge {
+                align-self: flex-start;
+              }
             }
           </style>
         </head>
