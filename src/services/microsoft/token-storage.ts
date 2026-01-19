@@ -31,7 +31,7 @@ export class MicrosoftTokenStorage extends BaseTokenStorage {
       code,
       redirect_uri: oauth.redirectUri,
       grant_type: 'authorization_code',
-      scope: oauth.scopes.join(' '),
+      scope: oauth.scopes?.join(' ') ?? '',
     });
 
     const tokenData = await this.makeTokenRequest(body);
@@ -50,7 +50,7 @@ export class MicrosoftTokenStorage extends BaseTokenStorage {
       client_secret: oauth.clientSecret,
       refresh_token: refreshToken,
       grant_type: 'refresh_token',
-      scope: oauth.scopes.join(' '),
+      scope: oauth.scopes?.join(' ') ?? '',
     });
 
     const tokenData = await this.makeTokenRequest(body);

@@ -19,8 +19,14 @@ export interface OAuthConfig {
   /** OAuth redirect URI (callback URL) */
   redirectUri: string;
 
-  /** OAuth scopes to request */
-  scopes: string[];
+  /** OAuth scopes to request (bot/app-level scopes) */
+  scopes?: string[];
+
+  /** Delimiter for joining scopes in authorization URL (default: ' ' for space-separated) */
+  scopeDelimiter?: string;
+
+  /** User-level OAuth scopes (for services like Slack that distinguish user vs bot scopes) */
+  userScopes?: string[];
 
   /** OAuth authorization endpoint */
   authEndpoint: string;
@@ -30,9 +36,6 @@ export interface OAuthConfig {
 
   /** OAuth tenant ID (for Microsoft) */
   tenantId?: string;
-
-  /** User scopes (for Slack) */
-  userScopes?: string[];
 }
 
 /**

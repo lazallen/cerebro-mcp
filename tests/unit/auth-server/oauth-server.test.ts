@@ -102,8 +102,24 @@ function makeRequest(
     });
 
     req.on('error', reject);
+    req.setTimeout(5000);
     req.end();
   });
+}
+
+/**
+ * Wait for server to be ready by polling
+ */
+async function waitForServer(port: number, maxAttempts: number = 10): Promise<void> {
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      await makeRequest(port, '/');
+      return;
+    } catch (error) {
+      if (i === maxAttempts - 1) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  }
 }
 
 describe('OAuthServer', () => {
@@ -131,6 +147,7 @@ describe('OAuthServer', () => {
 
     it('should stop server gracefully', async () => {
       await server.start();
+      await waitForServer(testPort);
       await expect(server.stop()).resolves.not.toThrow();
     });
   });
@@ -176,6 +193,7 @@ describe('OAuthServer', () => {
 
       server.registerService('test', registration);
       await server.start();
+      await waitForServer(testPort);
     });
 
     it('should serve home page at /', async () => {
@@ -252,6 +270,7 @@ describe('OAuthServer', () => {
 
       server.registerService('microsoft', registration);
       await server.start();
+      await waitForServer(testPort);
     });
 
     it('should support legacy /auth login URL', async () => {
@@ -273,6 +292,7 @@ describe('OAuthServer', () => {
 
       try {
         await serverWithoutMs.start();
+        await waitForServer(3335);
 
         const response = await makeRequest(3335, '/auth');
 

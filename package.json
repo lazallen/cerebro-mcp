@@ -1,6 +1,6 @@
 {
   "name": "cerebro-mcp-ts",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "description": "TypeScript implementation of Cerebro MCP - Model Context Protocol server for Microsoft 365, Slack, and extensible service integrations",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -19,7 +19,9 @@
     "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\"",
     "type-check": "tsc --noEmit",
     "start": "node dist/index.js",
+    "start:pretty": "node dist/index.js | pino-pretty",
     "dev": "ts-node src/index.ts",
+    "dev:pretty": "ts-node src/index.ts | pino-pretty",
     "prepare": "husky install",
     "clean": "rm -rf dist"
   },

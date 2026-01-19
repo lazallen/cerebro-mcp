@@ -4,7 +4,7 @@ TypeScript implementation of Cerebro MCP - A Model Context Protocol server provi
 
 ## Project Status
 
-**Current Phase**: Foundation (Feature 001 Complete ✅)
+**Current Phase**: Service Integration Complete ✅
 
 This project is under active development following SpecKit methodology with test-driven development and Skyscanner production standards compliance.
 
@@ -18,12 +18,39 @@ This project is under active development following SpecKit methodology with test
   - Configuration management
   - Code quality tooling (ESLint, Prettier)
 
-### Upcoming Features
+- ✅ **Feature 002**: Unified OAuth Authentication Server
+  - Multi-service OAuth 2.0 authentication
+  - HTTP/HTTPS with automatic SSL detection
+  - Token exchange and refresh flows
+  - Service registration and management
+  - Legacy URL support for backward compatibility
 
-- 🚧 **Feature 002**: Unified OAuth Authentication Server
-- 📋 **Feature 003**: MCP Protocol Handler
-- 📋 **Feature 004**: Microsoft 365 Service Integration
-- 📋 **Feature 005**: Slack Service Integration
+- ✅ **Feature 003**: MCP Protocol Handler
+  - Model Context Protocol server implementation
+  - Tool registration and execution
+  - Service lifecycle management
+  - Error handling and logging
+
+- ✅ **Feature 004**: Microsoft 365 Service Integration
+  - OAuth authentication with Microsoft Graph API
+  - Calendar tools (list, read, create, update, delete events)
+  - Email tools (list, read, send messages)
+  - findMeetingTimes for scheduling assistance
+  - Automatic token refresh
+
+- ✅ **Feature 005**: Microsoft Calendar findMeetingTimes
+  - Enhanced scheduling with meeting time suggestions
+  - Attendee availability checking
+  - Time constraint support
+  - Meeting duration preferences
+
+- ✅ **Feature 006**: Slack Workspace Integration
+  - OAuth authentication with Slack Web API
+  - Channel and private group tools
+  - Message history and thread replies
+  - Canvas document access
+  - User identity retrieval
+  - Reminder management (list, create, complete)
 
 ## Features
 
@@ -49,12 +76,28 @@ cd cerebro-mcp-ts
 # Install dependencies
 npm install
 
+# Set up SSL certificates (required for OAuth callbacks)
+# Install mkcert if not already installed:
+# - macOS: brew install mkcert
+# - Linux: Follow instructions at https://github.com/FiloSottile/mkcert#installation
+# - Windows: choco install mkcert (or download from releases)
+
+# Generate local certificates
+mkcert -install
+mkcert localhost 127.0.0.1 ::1
+
+# This creates:
+# - localhost+2.pem (certificate)
+# - localhost+2-key.pem (private key)
+
 # Copy environment configuration
 cp .env.example .env
 
 # Edit .env with your credentials
 # (See Configuration section below)
 ```
+
+**Why HTTPS?** OAuth providers like Microsoft and Slack require HTTPS redirect URIs for security. Using `mkcert` creates locally-trusted certificates so your browser accepts the connection.
 
 ## Configuration
 
@@ -77,12 +120,12 @@ NODE_ENV=development
 MICROSOFT_CLIENT_ID=your-client-id
 MICROSOFT_CLIENT_SECRET=your-client-secret
 MICROSOFT_TENANT_ID=common
-MICROSOFT_REDIRECT_URI=http://localhost:3333/auth/microsoft/callback
+MICROSOFT_REDIRECT_URI=https://localhost:3333/auth/microsoft/callback
 
 # Slack (if using Slack integration)
 SLACK_CLIENT_ID=your-client-id
 SLACK_CLIENT_SECRET=your-client-secret
-SLACK_REDIRECT_URI=http://localhost:3333/auth/slack/callback
+SLACK_REDIRECT_URI=https://localhost:3333/auth/slack/callback
 ```
 
 See [.env.example](.env.example) for complete configuration options with documentation.
@@ -102,12 +145,20 @@ npm run build:watch
 ### Run
 
 ```bash
-# Run the built application
+# Run the built application (JSON logs)
 npm start
 
-# Run in development mode with ts-node
+# Run with pretty-printed logs (human-readable)
+npm run start:pretty
+
+# Run in development mode with ts-node (JSON logs)
 npm run dev
+
+# Run in development mode with pretty-printed logs
+npm run dev:pretty
 ```
+
+**Tip**: Use `start:pretty` or `dev:pretty` for easier log reading during development. Production should use the standard `start` command for structured JSON logging.
 
 ### Code Quality
 
@@ -246,6 +297,147 @@ Log levels: `debug`, `info`, `warn`, `error`
 
 Configure via `LOG_LEVEL` environment variable.
 
+## Services
+
+### Microsoft 365 Integration
+
+The Microsoft 365 service provides access to calendars and email through Microsoft Graph API.
+
+#### Setup
+
+1. **Register an Azure AD application**:
+   - Go to [Azure Portal](https://portal.azure.com) → Azure Active Directory → App registrations
+   - Create a new registration
+   - Set redirect URI: `https://localhost:3333/auth/microsoft/callback` (use HTTPS)
+   - Note the Application (client) ID and Directory (tenant) ID
+
+2. **Create a client secret**:
+   - In your app registration, go to Certificates & secrets
+   - Create a new client secret
+   - Copy the secret value immediately
+
+3. **Configure API permissions**:
+   - Go to API permissions → Add permission → Microsoft Graph → Delegated permissions
+   - Add: `Calendars.ReadWrite`, `Mail.ReadWrite`, `Mail.Send`, `User.Read`
+   - Grant admin consent if required
+
+4. **Set environment variables**:
+   ```bash
+   MICROSOFT_CLIENT_ID=your-application-id
+   MICROSOFT_CLIENT_SECRET=your-client-secret
+   MICROSOFT_TENANT_ID=common  # or your specific tenant ID
+   ```
+
+#### Available Tools
+
+**Authentication**:
+- `authenticate` - Get OAuth URL to authenticate with Microsoft
+- `check-auth-status` - Check if authenticated
+
+**Calendar**:
+- `list-calendars` - List all calendars
+- `list-events` - List calendar events with optional filters
+- `get-event` - Get event details by ID
+- `create-event` - Create a new calendar event
+- `update-event` - Update an existing event
+- `delete-event` - Delete a calendar event
+- `find-meeting-times` - Find available meeting times across attendees
+
+**Email**:
+- `list-messages` - List email messages with filters
+- `get-message` - Get message details by ID
+- `send-message` - Send an email message
+
+### Slack Workspace Integration
+
+The Slack service provides access to channels, messages, canvases, and reminders through Slack Web API.
+
+#### Setup
+
+1. **Create a Slack app**:
+   - Go to [Slack API](https://api.slack.com/apps) → Create New App
+   - Choose "From scratch"
+   - Name your app and select a workspace
+
+2. **Configure OAuth & Permissions**:
+   - Go to OAuth & Permissions
+   - Add redirect URL: `https://localhost:3333/auth/slack/callback` (use HTTPS)
+   - Add the following User Token Scopes:
+     - `channels:read` - View basic channel information
+     - `channels:history` - View messages in public channels
+     - `groups:read` - View basic private channel information
+     - `groups:history` - View messages in private channels
+     - `canvases:read` - View canvas documents
+     - `canvases:write` - Edit canvases (used for read-only access)
+     - `identify` - View user identity information
+     - `reminders:read` - View reminders
+     - `reminders:write` - Create and complete reminders
+
+3. **Get credentials**:
+   - Note the Client ID from Basic Information
+   - Note the Client Secret from Basic Information
+
+4. **Set environment variables**:
+   ```bash
+   SLACK_CLIENT_ID=your-client-id
+   SLACK_CLIENT_SECRET=your-client-secret
+   ```
+
+#### Available Tools
+
+**Authentication**:
+- `authenticate` - Get OAuth URL to authenticate with Slack
+- `check-auth-status` - Check if authenticated
+
+**Channels**:
+- `list-channels` - List public channels (supports pagination)
+- `get-channel-history` - Get message history from a channel
+
+**Private Groups**:
+- `list-groups` - List private channels you're a member of
+- `get-group-history` - Get message history from a private group
+
+**Threads**:
+- `get-thread-replies` - Get replies in a message thread
+
+**Canvases**:
+- `read-canvas` - Read canvas content by ID (returns markdown)
+- `search-canvases` - Search for canvases in a channel
+
+**Identity**:
+- `get-user-identity` - Get authenticated user's profile and team info
+
+**Reminders**:
+- `list-reminders` - List all active reminders
+- `create-reminder` - Create a new reminder
+- `complete-reminder` - Mark a reminder as complete
+
+#### Notes
+
+- **User Tokens**: Slack user tokens do not expire, so no token refresh is needed
+- **Pagination**: All list operations support cursor-based pagination
+- **Private Access**: You can only access private groups you're a member of
+- **Rate Limits**: Slack enforces rate limits per workspace
+
+## Authentication Flow
+
+1. **Start the server**:
+   ```bash
+   npm start
+   ```
+
+2. **Use the authenticate tool** for your service (Microsoft or Slack)
+
+3. **Visit the OAuth URL** provided in the response
+
+4. **Grant permissions** in the OAuth consent screen
+
+5. **Automatic redirect** back to the server with access token
+
+6. **Token storage**: Tokens are saved securely in `.tokens/` directory
+
+7. **Automatic refresh** (Microsoft only): Tokens are refreshed automatically when expired
+
 ## Testing
 
 ### Mock Mode
@@ -304,5 +496,5 @@ MIT
 
 ---
 
-**Version**: 0.1.0
-**Status**: Foundation Phase Complete ✅
+**Version**: 0.3.0
+**Status**: Service Integration Complete ✅ (Features 001-006)

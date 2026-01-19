@@ -308,17 +308,19 @@ export class SlackService implements BaseService {
 
   /**
    * Get authorization URL for OAuth flow
+   * Note: This is handled by the OAuth server, but kept for backward compatibility
    */
   getAuthorizationUrl(): string {
-    const scopes = this.config.oauth.scopes.join(' ');
-    const params = new URLSearchParams({
+    const userScopes = this.config.oauth.userScopes ?? [];
+    const scopes = userScopes.join(','); // Slack uses comma-separated scopes
+    const params = {
       client_id: this.config.oauth.clientId,
-      scope: scopes,
-      redirect_uri: this.config.oauth.redirectUri,
-      user_scope: scopes, // Slack uses user_scope for user tokens
-    });
+      user_scope: scopes,
+      redirect_uri: encodeURIComponent(this.config.oauth.redirectUri),
+    };
 
-    return `${this.config.oauth.authEndpoint}?${params.toString()}`;
+    const queryString = `client_id=${params.client_id}&user_scope=${params.user_scope}&redirect_uri=${params.redirect_uri}`;
+    return `${this.config.oauth.authEndpoint}?${queryString}`;
   }
 
   /**

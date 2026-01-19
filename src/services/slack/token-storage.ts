@@ -101,8 +101,13 @@ export class SlackTokenStorage extends BaseTokenStorage {
               const parsed = JSON.parse(data) as {
                 ok?: boolean;
                 access_token?: string;
+                authed_user?: {
+                  id?: string;
+                  access_token?: string;
+                  token_type?: string;
+                  scope?: string;
+                };
                 team?: { id?: string; name?: string };
-                user?: { id?: string; name?: string };
                 scope?: string;
                 error?: string;
               };
@@ -116,7 +121,13 @@ export class SlackTokenStorage extends BaseTokenStorage {
                 );
               }
 
-              if (!parsed.access_token) {
+              // When using user_scope, the access token is in authed_user.access_token
+              // When using scope (bot scopes), the access token is at the top level
+              const accessToken = parsed.authed_user?.access_token ?? parsed.access_token;
+              const scope = parsed.authed_user?.scope ?? parsed.scope ?? '';
+              const userId = parsed.authed_user?.id ?? '';
+
+              if (!accessToken) {
                 throw new APIError(
                   'No access token in response',
                   res.statusCode ?? 400,
@@ -126,12 +137,12 @@ export class SlackTokenStorage extends BaseTokenStorage {
               }
 
               resolve({
-                access_token: parsed.access_token,
+                access_token: accessToken,
                 team_id: parsed.team?.id ?? '',
                 team_name: parsed.team?.name ?? '',
-                user_id: parsed.user?.id ?? '',
-                user_name: parsed.user?.name,
-                scope: parsed.scope ?? '',
+                user_id: userId,
+                user_name: undefined,
+                scope,
               });
             } catch (error) {
               reject(error);

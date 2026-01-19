@@ -8,6 +8,8 @@ import { logger, globalConfig, ServiceRegistry } from './common';
 import { OAuthServer } from './auth-server';
 import { MCPServer } from './mcp-server';
 import { registerServices } from './mcp-server/service-registration';
+import type { BaseService } from './types/service';
+import type { BaseTokenStorage } from './common/base-token-storage';
 
 let oauthServer: OAuthServer | undefined;
 let mcpServer: MCPServer | undefined;
@@ -29,6 +31,31 @@ async function main(): Promise<void> {
 
     // 2. Start OAuth authentication server (port 3333)
     oauthServer = new OAuthServer();
+
+    // Register services with OAuth server for authentication
+    for (const [serviceName, service] of serviceRegistry.services.entries()) {
+      // Get token storage - we need to cast to access it
+      const serviceWithTokenStorage = service as BaseService & {
+        tokenStorage?: BaseTokenStorage;
+        getAuthorizationUrl?: () => string;
+      };
+
+      // Only register if service has token storage (authentication capability)
+      if (serviceWithTokenStorage.tokenStorage && serviceWithTokenStorage.getAuthorizationUrl) {
+        oauthServer.registerService(serviceName, {
+          name: service.config.displayName,
+          config: service.config,
+          tokenStorage: serviceWithTokenStorage.tokenStorage,
+        });
+
+        logger.info({
+          operation: 'oauth_service_registered',
+          service: serviceName,
+          msg: `Service registered with OAuth server: ${service.config.displayName}`,
+        });
+      }
+    }
+
     logger.info({
       operation: 'oauth_server_init',
       msg: 'OAuth server initialized',

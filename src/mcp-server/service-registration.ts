@@ -53,7 +53,7 @@ export async function registerServices(registry: ServiceRegistry): Promise<void>
           clientId: process.env['MICROSOFT_CLIENT_ID'] ?? '',
           clientSecret: process.env['MICROSOFT_CLIENT_SECRET'] ?? '',
           tenantId,
-          redirectUri: 'http://localhost:3333/auth/microsoft/callback',
+          redirectUri: 'https://localhost:3333/auth/microsoft/callback',
           scopes: [
             'offline_access',
             'Mail.Read',
@@ -101,8 +101,8 @@ export async function registerServices(registry: ServiceRegistry): Promise<void>
         oauth: {
           clientId: process.env['SLACK_CLIENT_ID'] ?? '',
           clientSecret: process.env['SLACK_CLIENT_SECRET'] ?? '',
-          redirectUri: 'http://localhost:3333/auth/slack/callback',
-          scopes: [
+          redirectUri: 'https://localhost:3333/auth/slack/callback',
+          userScopes: [
             'channels:read',
             'channels:history',
             'groups:read',
@@ -113,6 +113,7 @@ export async function registerServices(registry: ServiceRegistry): Promise<void>
             'reminders:read',
             'reminders:write',
           ],
+          scopeDelimiter: ',', // Slack requires comma-separated scopes
           authEndpoint: 'https://slack.com/oauth/v2/authorize',
           tokenEndpoint: 'https://slack.com/api/oauth.v2.access',
         },

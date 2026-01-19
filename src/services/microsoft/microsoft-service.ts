@@ -49,6 +49,28 @@ export class MicrosoftService implements BaseService {
 
   getTools(): Tool[] {
     return [
+      // Authentication Tools
+      {
+        name: 'authenticate',
+        description:
+          'Initiate Microsoft OAuth authentication. Returns authorization URL to complete in browser.',
+        inputSchema: {
+          type: 'object',
+          properties: {},
+        },
+        handler: this.authenticate.bind(this),
+      },
+      {
+        name: 'check-auth-status',
+        description:
+          'Check Microsoft authentication status. Returns user information if authenticated.',
+        inputSchema: {
+          type: 'object',
+          properties: {},
+        },
+        handler: this.checkAuthStatus.bind(this),
+      },
+
       // Email Tools
       {
         name: 'list-emails',
@@ -778,5 +800,76 @@ export class MicrosoftService implements BaseService {
         },
       },
     };
+  }
+
+  /**
+   * Get OAuth authorization URL
+   */
+  getAuthorizationUrl(): string {
+    const scopes = this.config.oauth.scopes?.join(' ') ?? '';
+    const params = new URLSearchParams({
+      client_id: this.config.oauth.clientId,
+      response_type: 'code',
+      redirect_uri: this.config.oauth.redirectUri,
+      scope: scopes,
+      response_mode: 'query',
+      state: Date.now().toString(),
+    });
+
+    return `${this.config.oauth.authEndpoint}?${params.toString()}`;
+  }
+
+  /**
+   * Initiate OAuth authentication
+   */
+  // eslint-disable-next-line @typescript-eslint/require-await
+  private async authenticate(_input: Record<string, unknown>): Promise<unknown> {
+    const authUrl = this.getAuthorizationUrl();
+    return {
+      success: true,
+      authUrl,
+      message: 'Please visit the URL to complete authentication. The OAuth server must be running at https://localhost:3333',
+    };
+  }
+
+  /**
+   * Check authentication status
+   */
+  private async checkAuthStatus(_input: Record<string, unknown>): Promise<unknown> {
+    const hasTokens = await this.tokenStorage.hasTokens();
+    if (!hasTokens) {
+      return {
+        authenticated: false,
+        message: 'Not authenticated. Please run authenticate tool.',
+      };
+    }
+
+    // Validate token with Microsoft Graph
+    try {
+      const response = await this.apiClient.request('/me', {
+        method: 'GET',
+      });
+
+      const data = response.data as {
+        displayName?: string;
+        userPrincipalName?: string;
+        id?: string;
+      };
+
+      return {
+        authenticated: true,
+        user: {
+          displayName: data.displayName,
+          email: data.userPrincipalName,
+          id: data.id,
+        },
+      };
+    } catch (error) {
+      return {
+        authenticated: false,
+        message: 'Authentication token is invalid or expired. Please re-authenticate.',
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 }

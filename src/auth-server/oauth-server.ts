@@ -54,6 +54,7 @@ export class OAuthServer {
   private readonly services: Map<string, AuthServiceRegistration>;
   private server?: http.Server | https.Server;
   private readonly protocol: 'http' | 'https';
+  private isRunning: boolean = false;
 
   constructor(port?: number) {
     this.port = port ?? globalConfig.authServerPort;
@@ -177,6 +178,7 @@ export class OAuthServer {
     });
 
     this.server.listen(this.port, () => {
+      this.isRunning = true;
       this.logServerStarted();
       resolve();
     });
@@ -209,6 +211,7 @@ export class OAuthServer {
       });
 
       this.server.listen(this.port, () => {
+        this.isRunning = true;
         this.logServerStarted();
         resolve();
       });
@@ -425,13 +428,19 @@ export class OAuthServer {
       state: Date.now().toString(),
     };
 
-    // Handle service-specific scope parameters
+    // Handle scope parameters
     if (oauth.userScopes) {
-      // Slack uses user_scope parameter with comma-separated scopes
-      authParams['user_scope'] = oauth.userScopes.join(',');
-    } else if (oauth.scopes) {
-      // Microsoft uses scope parameter with space-separated scopes
-      authParams['scope'] = oauth.scopes.join(' ');
+      // User-level scopes (e.g., Slack user_scope)
+      // Use service-specific delimiter (default to comma for backward compatibility)
+      const delimiter = oauth.scopeDelimiter ?? ',';
+      authParams['user_scope'] = oauth.userScopes.join(delimiter);
+    }
+
+    if (oauth.scopes) {
+      // Bot/app-level scopes (e.g., Microsoft scope, Slack scope)
+      // Use service-specific delimiter (default to space for backward compatibility)
+      const delimiter = oauth.scopeDelimiter ?? ' ';
+      authParams['scope'] = oauth.scopes.join(delimiter);
     }
 
     // Add Microsoft-specific parameters
@@ -664,7 +673,15 @@ export class OAuthServer {
    */
   async stop(): Promise<void> {
     return new Promise((resolve, reject) => {
-      if (!this.server) {
+      if (!this.server || !this.isRunning) {
+        logger.info({
+          operation: 'auth_server_shutdown',
+          msg: 'Shutting down OAuth server',
+        });
+        logger.error({
+          operation: 'shutdown_error',
+          error: 'Server is not running.',
+        });
         resolve();
         return;
       }
@@ -682,6 +699,7 @@ export class OAuthServer {
           });
           reject(error);
         } else {
+          this.isRunning = false;
           logger.info({
             operation: 'auth_server_stopped',
             msg: 'OAuth server stopped',

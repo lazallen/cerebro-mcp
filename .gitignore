@@ -13,6 +13,10 @@ build/
 coverage/
 .nyc_output/
 
+# Tokens (sensitive - never commit)
+.tokens/
+*.tokens.json
+
 # Environment variables
 .env
 .env.local
