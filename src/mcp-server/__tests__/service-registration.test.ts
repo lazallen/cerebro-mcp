@@ -10,6 +10,7 @@ import {
   hasSlackCredentials,
   registerServices,
 } from '../service-registration';
+import type { ServiceRegistry } from '../../common/service-registry';
 
 describe('Service Registration', () => {
   const originalEnv = process.env;
@@ -89,16 +90,17 @@ describe('Service Registration', () => {
       process.env.MICROSOFT_CLIENT_SECRET = 'test-secret';
       process.env.MICROSOFT_TENANT_ID = 'test-tenant';
 
-      const mockRegistry = {
-        register: jest.fn(),
+      const registerFn = jest.fn();
+      const mockRegistry: Partial<ServiceRegistry> = {
+        register: registerFn,
         list: jest.fn().mockReturnValue(['microsoft']),
-      } as any;
+      };
 
-      await registerServices(mockRegistry);
+      await registerServices(mockRegistry as ServiceRegistry);
 
       // Microsoft service should be registered
-      expect(mockRegistry.register).toHaveBeenCalledTimes(1);
-      const call = mockRegistry.register.mock.calls[0][0];
+      expect(registerFn).toHaveBeenCalledTimes(1);
+      const call = registerFn.mock.calls[0][0];
       expect(call.name).toBe('microsoft');
     });
 
@@ -106,16 +108,17 @@ describe('Service Registration', () => {
       process.env.SLACK_CLIENT_ID = 'test-client-id';
       process.env.SLACK_CLIENT_SECRET = 'test-secret';
 
-      const mockRegistry = {
-        register: jest.fn(),
+      const registerFn = jest.fn();
+      const mockRegistry: Partial<ServiceRegistry> = {
+        register: registerFn,
         list: jest.fn().mockReturnValue(['slack']),
-      } as any;
+      };
 
-      await registerServices(mockRegistry);
+      await registerServices(mockRegistry as ServiceRegistry);
 
       // Slack service should be registered
-      expect(mockRegistry.register).toHaveBeenCalledTimes(1);
-      const call = mockRegistry.register.mock.calls[0][0];
+      expect(registerFn).toHaveBeenCalledTimes(1);
+      const call = registerFn.mock.calls[0][0];
       expect(call.name).toBe('slack');
     });
 
@@ -123,15 +126,16 @@ describe('Service Registration', () => {
       delete process.env.MICROSOFT_CLIENT_ID;
       delete process.env.SLACK_CLIENT_ID;
 
-      const mockRegistry = {
-        register: jest.fn(),
+      const registerFn = jest.fn();
+      const mockRegistry: Partial<ServiceRegistry> = {
+        register: registerFn,
         list: jest.fn().mockReturnValue([]),
-      } as any;
+      };
 
-      await registerServices(mockRegistry);
+      await registerServices(mockRegistry as ServiceRegistry);
 
       // Register should not be called
-      expect(mockRegistry.register).not.toHaveBeenCalled();
+      expect(registerFn).not.toHaveBeenCalled();
     });
 
     it('should register both services when all credentials exist', async () => {
@@ -141,15 +145,16 @@ describe('Service Registration', () => {
       process.env.SLACK_CLIENT_ID = 'test-client-id';
       process.env.SLACK_CLIENT_SECRET = 'test-secret';
 
-      const mockRegistry = {
-        register: jest.fn(),
+      const registerFn = jest.fn();
+      const mockRegistry: Partial<ServiceRegistry> = {
+        register: registerFn,
         list: jest.fn().mockReturnValue(['microsoft', 'slack']),
-      } as any;
+      };
 
-      await registerServices(mockRegistry);
+      await registerServices(mockRegistry as ServiceRegistry);
 
       // Both services should be registered
-      expect(mockRegistry.register).toHaveBeenCalledTimes(2);
+      expect(registerFn).toHaveBeenCalledTimes(2);
     });
   });
 });

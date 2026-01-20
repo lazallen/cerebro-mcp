@@ -72,6 +72,15 @@ export abstract class BaseAPIClient<T = unknown> {
       return this.mockHandler(config);
     }
 
+    // Provide default mock response when in test mode without mock handler
+    if (this.useTestMode) {
+      return {
+        data: {} as T,
+        status: 200,
+        headers: {},
+      };
+    }
+
     const accessToken = await this.getAccessToken();
     const fullUrl = `${this.apiEndpoint}${path}`;
 

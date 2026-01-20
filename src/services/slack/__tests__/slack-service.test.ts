@@ -4,12 +4,14 @@
 
 import { SlackService } from '../slack-service';
 import { ServiceConfig } from '../../../types/service';
+import * as fs from 'fs/promises';
 
 // Mock environment setup
 process.env['MOCK_MODE'] = 'true';
 
 describe('SlackService', () => {
   let service: SlackService;
+  const testTokenPath = './.tokens/test-slack-tokens.json';
   const mockConfig: ServiceConfig = {
     name: 'slack',
     displayName: 'Slack',
@@ -32,11 +34,37 @@ describe('SlackService', () => {
       authEndpoint: 'https://slack.com/oauth/v2/authorize',
       tokenEndpoint: 'https://slack.com/api/oauth.v2.access',
     },
-    tokenStorePath: './.tokens/test-slack-tokens.json',
+    tokenStorePath: testTokenPath,
   };
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    // Set test mode
+    process.env['USE_TEST_MODE'] = 'true';
+
+    // Create mock token file for testing
+    await fs.mkdir('./.tokens', { recursive: true });
+    await fs.writeFile(
+      testTokenPath,
+      JSON.stringify({
+        accessToken: 'xoxb-mock-slack-token',
+        refreshToken: 'mock-refresh-token',
+        expiresAt: Date.now() + 3600000, // 1 hour from now
+        tokenType: 'Bearer',
+        scopes: ['channels:read', 'channels:history'],
+      })
+    );
+
     service = new SlackService(mockConfig);
+  });
+
+  afterEach(async () => {
+    await service.shutdown();
+    try {
+      await fs.unlink(testTokenPath);
+    } catch {
+      // Ignore if file doesn't exist
+    }
+    delete process.env['USE_TEST_MODE'];
   });
 
   describe('initialization', () => {

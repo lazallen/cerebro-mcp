@@ -1,577 +1,204 @@
 # Cerebro MCP TypeScript
 
-TypeScript implementation of Cerebro MCP - A Model Context Protocol server providing Claude with access to Microsoft 365, Slack, and extensible service integrations.
-
-## Project Status
-
-**Current Phase**: Service Integration Complete ✅
-
-This project is under active development following SpecKit methodology with test-driven development and Skyscanner production standards compliance.
-
-### Completed Features
-
-- ✅ **Feature 001**: Project Foundation & Base Architecture
-  - TypeScript strict mode configuration
-  - Core interfaces and type definitions
-  - Base classes (BaseAPIClient, BaseTokenStorage)
-  - Structured logging with pino
-  - Configuration management
-  - Code quality tooling (ESLint, Prettier)
-
-- ✅ **Feature 002**: Unified OAuth Authentication Server
-  - Multi-service OAuth 2.0 authentication
-  - HTTP/HTTPS with automatic SSL detection
-  - Token exchange and refresh flows
-  - Service registration and management
-  - Legacy URL support for backward compatibility
-
-- ✅ **Feature 003**: MCP Protocol Handler
-  - Model Context Protocol server implementation
-  - Tool registration and execution
-  - Service lifecycle management
-  - Error handling and logging
-
-- ✅ **Feature 004**: Microsoft 365 Service Integration
-  - OAuth authentication with Microsoft Graph API
-  - Calendar tools (list, read, create, update, delete events)
-  - Email tools (list, read, send messages)
-  - findMeetingTimes for scheduling assistance
-  - Automatic token refresh
-
-- ✅ **Feature 005**: Microsoft Calendar findMeetingTimes
-  - Enhanced scheduling with meeting time suggestions
-  - Attendee availability checking
-  - Time constraint support
-  - Meeting duration preferences
-
-- ✅ **Feature 006**: Slack Workspace Integration
-  - OAuth authentication with Slack Web API
-  - Channel and private group tools
-  - Message history and thread replies
-  - Canvas document access
-  - User identity retrieval
-  - Reminder management (list, create, complete)
-
-- ✅ **Feature 007**: Slack OAuth Fixes & Enhancements
-  - Fixed Slack OAuth v2 parameter issues (`user_scope` vs `scope`)
-  - Corrected scope delimiter handling (comma-separated for Slack)
-  - Fixed token parsing from `authed_user.access_token`
-  - Enhanced OAuth server to support diverse provider patterns
-  - Configurable scope delimiters per service
-
-- ✅ **Feature 008**: Authentication Dashboard & Home Page
-  - Web-based authentication dashboard for all services
-  - Real-time service status display (connected, expired, requires auth, error)
-  - One-click authentication buttons for each service
-  - Token validation and expiration status
-  - Responsive HTML interface with CSS styling
-  - Service configuration display and troubleshooting information
+TypeScript MCP server providing Claude with access to Microsoft 365, Slack, and extensible service integrations via a unified HTTP server.
 
 ## Features
 
-- **Multi-Service Architecture**: Extensible design for integrating multiple services
-- **Type-Safe**: Built with TypeScript in strict mode - no `any` types
-- **OAuth 2.0 Support**: Unified authentication server with automatic token refresh
-- **Structured Logging**: JSON-formatted logs with correlation IDs using pino
-- **Test Mode**: Mock mode for testing without real API calls
-- **Production-Ready**: Follows Skyscanner production standards
+- **Dual-Port Architecture** - OAuth (HTTPS :3333) + MCP (HTTP :3334) for security and compatibility
+- **Multi-Service** - Microsoft 365 (email, calendar) and Slack (channels, messages, reminders)
+- **Type-Safe** - TypeScript strict mode, no `any` types
+- **OAuth 2.0** - Automatic token refresh and web-based authentication dashboard
+- **Streamable HTTP** - Modern MCP transport compatible with Claude Code
+- **Production-Ready** - Structured logging, comprehensive tests, follows Skyscanner standards
 
-## Prerequisites
-
-- **Node.js**: >= 18.0.0 (LTS)
-- **npm**: >= 8.0.0
-
-## Installation
+## Quick Start
 
 ```bash
-# Clone the repository
-git clone <repository-url>
-cd cerebro-mcp-ts
-
-# Install dependencies
+# Install
 npm install
 
-# Set up SSL certificates (required for OAuth callbacks)
-# Install mkcert if not already installed:
-# - macOS: brew install mkcert
-# - Linux: Follow instructions at https://github.com/FiloSottile/mkcert#installation
-# - Windows: choco install mkcert (or download from releases)
-
-# Generate local certificates
+# Generate SSL certificates (required for OAuth)
 mkcert -install
 mkcert localhost 127.0.0.1 ::1
 
-# This creates:
-# - localhost+2.pem (certificate)
-# - localhost+2-key.pem (private key)
-
-# Copy environment configuration
+# Configure
 cp .env.example .env
+# Edit .env with your Microsoft/Slack credentials
 
-# Edit .env with your credentials
-# (See Configuration section below)
+# Run
+npm start
 ```
 
-**Why HTTPS?** OAuth providers like Microsoft and Slack require HTTPS redirect URIs for security. Using `mkcert` creates locally-trusted certificates so your browser accepts the connection.
+Server starts on dual ports:
+- **Port 3333 (HTTPS)**: OAuth Dashboard at `https://localhost:3333/` - Authenticate services
+- **Port 3334 (HTTP)**: MCP Endpoint at `http://localhost:3334/mcp` - Claude Code connection
+
+## Claude Code Setup
+
+**Important:** Claude Code CLI uses `claude mcp add` commands (not JSON config files).
+
+### Quick Setup
+
+```bash
+# 1. Start the server
+npm start
+
+# 2. Add Cerebro to Claude Code (using HTTP endpoint)
+claude mcp add --transport http cerebro http://localhost:3334/mcp
+
+# 3. Verify connection
+claude mcp list
+# Should show: cerebro: http://localhost:3334/mcp (HTTP) - ✓ Connected
+```
+
+### Dual-Port Architecture
+
+Cerebro runs two HTTP servers for optimal security and compatibility:
+
+- **Port 3333 (HTTPS)**: OAuth authentication dashboard - secure, requires SSL
+- **Port 3334 (HTTP)**: MCP protocol endpoint - no SSL issues with Claude Code
+
+This design allows OAuth to remain secure with HTTPS while providing HTTP access for MCP clients that have SSL certificate trust issues.
+
+### Full Setup Workflow
+
+1. **Start server**: `npm start`
+2. **Add MCP server**: `claude mcp add --transport http cerebro http://localhost:3334/mcp`
+3. **Verify connection**: `claude mcp list` - should show ✓ Connected
+4. **Authenticate services**: Visit `https://localhost:3333/` and click "Authenticate"
+5. **Use tools**: All authenticated services are now available in Claude Code
+
+### Configuration Options
+
+You can customize ports via environment variables in `.env`:
+
+```bash
+AUTH_SERVER_PORT=3333      # OAuth + Dashboard (HTTPS)
+MCP_SERVER_PORT=3334       # MCP endpoint (HTTP)
+```
+
+📚 **Detailed setup guide**: [docs/guides/claude-code-setup.md](docs/guides/claude-code-setup.md)
 
 ## Configuration
 
-All configuration is managed through environment variables. Copy `.env.example` to `.env` and configure:
-
-### Required Variables
+Key environment variables (see [.env.example](.env.example) for full list):
 
 ```bash
-# Server Configuration
-SERVER_NAME=cerebro-mcp-ts
-SERVER_VERSION=0.1.0
-AUTH_SERVER_PORT=3333  # OAuth callback port (DO NOT CHANGE - OAuth apps registered on this port)
+# Server (required)
+SERVER_VERSION=0.3.0
+AUTH_SERVER_PORT=3333  # OAuth + Dashboard (HTTPS) - OAuth apps registered on this port
+MCP_SERVER_PORT=3334   # MCP endpoint (HTTP) - for Claude Code compatibility
 
-# Logging
-LOG_LEVEL=info  # debug, info, warn, error
-LOG_PRETTY=true # Pretty print logs (true for development)
-NODE_ENV=development
-
-# Microsoft 365 (if using Microsoft integration)
+# Microsoft 365 (optional)
 MICROSOFT_CLIENT_ID=your-client-id
 MICROSOFT_CLIENT_SECRET=your-client-secret
 MICROSOFT_TENANT_ID=common
-MICROSOFT_REDIRECT_URI=https://localhost:3333/auth/microsoft/callback
 
-# Slack (if using Slack integration)
+# Slack (optional)
 SLACK_CLIENT_ID=your-client-id
 SLACK_CLIENT_SECRET=your-client-secret
-SLACK_REDIRECT_URI=https://localhost:3333/auth/slack/callback
+
+# Testing (optional)
+USE_TEST_MODE=false
 ```
 
-See [.env.example](.env.example) for complete configuration options with documentation.
+**OAuth Setup:**
+- Microsoft: Redirect URI = `https://localhost:3333/auth/microsoft/callback`
+- Slack: Redirect URI = `https://localhost:3333/auth/slack/callback`
+
+**Ports:**
+- Port 3333: OAuth authentication (HTTPS) - **do not change** (OAuth apps registered on this port)
+- Port 3334: MCP endpoint (HTTP) - configurable via `MCP_SERVER_PORT`
 
 ## Development
 
-### Build
-
 ```bash
-# Build TypeScript to JavaScript
+# Build
 npm run build
 
-# Build and watch for changes
-npm run build:watch
-```
-
-### Run
-
-```bash
-# Run the built application (JSON logs)
-npm start
-
-# Run with pretty-printed logs (human-readable)
-npm run start:pretty
-
-# Run in development mode with ts-node (JSON logs)
-npm run dev
-
-# Run in development mode with pretty-printed logs
-npm run dev:pretty
-```
-
-**Tip**: Use `start:pretty` or `dev:pretty` for easier log reading during development. Production should use the standard `start` command for structured JSON logging.
-
-### Code Quality
-
-```bash
-# Run ESLint
-npm run lint
-
-# Fix linting issues automatically
-npm run lint:fix
-
-# Format code with Prettier
-npm run format
-
-# Check formatting without changes
-npm run format:check
-
-# Type check without building
-npm run type-check
-```
-
-### Testing
-
-The project includes comprehensive test coverage for core modules:
-
-```bash
-# Run all tests
+# Test
 npm test
 
-# Run tests in watch mode
-npm test:watch
+# Lint
+npm run lint
+npm run lint:fix
 
-# Run tests with coverage
-npm test:coverage
+# Run with pretty logs
+npm run start:pretty
 ```
 
-#### Test Structure
+## Available Tools
 
-Tests are organized alongside source code in `__tests__` directories:
+**Microsoft 365** (11 tools):
+- **Auth**: authenticate, check-auth-status
+- **Email**: list-emails, read-email, send-email
+- **Calendar**: list-events, get-event, create-event, update-event, delete-event, find-meeting-times
 
-```
-src/
-├── common/
-│   └── __tests__/
-│       └── config.test.ts          # Configuration utilities (8 tests)
-├── mcp-server/
-│   └── __tests__/
-│       ├── error-mapper.test.ts    # Error mapping & custom errors (16 tests)
-│       ├── mcp-server.test.ts      # MCP server initialization (6 tests)
-│       └── service-registration.test.ts  # Service registration (10 tests)
-└── services/
-    ├── microsoft/
-    │   └── __tests__/
-    │       └── microsoft-service.test.ts
-    └── slack/
-        └── __tests__/
-            └── slack-service.test.ts
-```
-
-#### Test Coverage
-
-**Total: 40+ tests across core modules**
-
-- **Error Mapper Tests** (16 tests): JSON-RPC error mapping, custom error classes
-- **Service Registration Tests** (10 tests): Credential validation, multi-service registration
-- **MCP Server Tests** (6 tests): Server initialization, registry integration
-- **Config Tests** (8 tests): Environment variable validation, default values
-
-#### Running Specific Tests
-
-```bash
-# Run only error-mapper tests
-npm test -- error-mapper
-
-# Run tests in a specific directory
-npm test -- src/mcp-server/__tests__
-
-# Run tests matching a pattern
-npm test -- --testNamePattern="should register"
-```
+**Slack** (13 tools):
+- **Auth**: authenticate, check-auth-status
+- **Channels**: list-channels, get-channel-history
+- **Groups**: list-groups, get-group-history
+- **Threads**: get-thread-replies
+- **Canvas**: read-canvas, search-canvases
+- **User**: get-user-identity
+- **Reminders**: list-reminders, create-reminder, complete-reminder
 
 ## Project Structure
 
 ```
-cerebro-mcp-ts/
-├── src/
-│   ├── types/           # TypeScript interfaces and types
-│   │   ├── tool.ts     # MCP tool definitions
-│   │   ├── api.ts      # API client types
-│   │   ├── token.ts    # OAuth token types
-│   │   └── service.ts  # Service configuration types
-│   │
-│   ├── common/          # Shared base classes
-│   │   ├── base-api-client.ts     # Generic API client
-│   │   ├── base-token-storage.ts  # OAuth token management
-│   │   ├── logger.ts              # Structured logging
-│   │   ├── config.ts              # Global configuration
-│   │   └── __tests__/             # Common module tests
-│   │
-│   ├── mcp-server/      # MCP server implementation
-│   │   ├── mcp-server.ts          # Main server implementation
-│   │   ├── error-mapper.ts        # Error mapping and custom errors
-│   │   ├── service-registration.ts # Service registration logic
-│   │   └── __tests__/             # MCP server tests
-│   │
-│   ├── services/        # Service integrations
-│   │   ├── microsoft/              # Microsoft 365 integration
-│   │   │   ├── api-client.ts
-│   │   │   ├── microsoft-service.ts
-│   │   │   ├── token-storage.ts
-│   │   │   └── __tests__/
-│   │   └── slack/                  # Slack integration
-│   │       ├── api-client.ts
-│   │       ├── slack-service.ts
-│   │       ├── token-storage.ts
-│   │       └── __tests__/
-│   │
-│   ├── auth-server/     # OAuth authentication server
-│   │   ├── index.ts
-│   │   └── oauth-server.ts
-│   │
-│   ├── utils/          # Utility functions (future)
-│   └── index.ts        # Main entry point
-│
-├── tests/              # Integration and e2e tests
-│   ├── unit/          # Unit tests
-│   ├── integration/   # Integration tests
-│   └── fixtures/      # Test fixtures
-│
-├── specs/             # SpecKit feature specifications
-├── .specify/          # SpecKit configuration
-├── dist/              # Compiled JavaScript (generated)
-└── docs/              # Documentation (future)
-│
-├── specs/             # SpecKit feature specifications
-├── .specify/          # SpecKit configuration
-├── dist/              # Compiled JavaScript (generated)
-└── docs/              # Documentation (future)
+src/
+├── auth-server/        # OAuth HTTP server
+├── mcp-server/         # MCP protocol handler
+├── services/           # Service integrations (Microsoft, Slack)
+│   ├── microsoft/
+│   └── slack/
+├── common/            # Shared utilities (logging, config, base classes)
+└── types/             # TypeScript interfaces
 ```
-
-## Architecture
-
-### Base Classes
-
-#### BaseAPIClient<T>
-
-Generic base class for making HTTP/HTTPS API requests with:
-- Bearer token authentication
-- Automatic pagination handling
-- Configurable timeouts
-- Mock mode for testing
-- Typed error handling
-
-```typescript
-import { BaseAPIClient } from './common/base-api-client';
-
-class MyServiceClient extends BaseAPIClient<MyResponseType> {
-  protected async getAccessToken(): Promise<string> {
-    // Implement token retrieval
-  }
-}
-```
-
-#### BaseTokenStorage
-
-Abstract base class for OAuth token management with:
-- File-based token persistence
-- Automatic token refresh (5-minute buffer)
-- Concurrent operation deduplication
-- Secure file permissions (0600)
-
-```typescript
-import { BaseTokenStorage } from './common/base-token-storage';
-
-class MyServiceTokenStorage extends BaseTokenStorage {
-  async exchangeCodeForTokens(code: string): Promise<TokenData> {
-    // Implement OAuth code exchange
-  }
-
-  async refreshAccessToken(refreshToken: string): Promise<TokenData> {
-    // Implement token refresh
-  }
-}
-```
-
-### Type System
-
-All core types are defined with TypeScript strict mode:
-- No `any` types
-- Strict null checks
-- Generic type parameters for reusability
-- Comprehensive error types
-
-## Logging
-
-Structured JSON logging with pino:
-
-```typescript
-import { logger, generateCorrelationId } from './common/logger';
-
-const correlationId = generateCorrelationId();
-
-logger.info({
-  correlationId,
-  service: 'my-service',
-  operation: 'my_operation',
-  msg: 'Operation completed'
-});
-```
-
-Log levels: `debug`, `info`, `warn`, `error`
-
-Configure via `LOG_LEVEL` environment variable.
-
-## Services
-
-### Microsoft 365 Integration
-
-The Microsoft 365 service provides access to calendars and email through Microsoft Graph API.
-
-#### Setup
-
-1. **Register an Azure AD application**:
-   - Go to [Azure Portal](https://portal.azure.com) → Azure Active Directory → App registrations
-   - Create a new registration
-   - Set redirect URI: `https://localhost:3333/auth/microsoft/callback` (use HTTPS)
-   - Note the Application (client) ID and Directory (tenant) ID
-
-2. **Create a client secret**:
-   - In your app registration, go to Certificates & secrets
-   - Create a new client secret
-   - Copy the secret value immediately
-
-3. **Configure API permissions**:
-   - Go to API permissions → Add permission → Microsoft Graph → Delegated permissions
-   - Add: `Calendars.ReadWrite`, `Mail.ReadWrite`, `Mail.Send`, `User.Read`
-   - Grant admin consent if required
-
-4. **Set environment variables**:
-   ```bash
-   MICROSOFT_CLIENT_ID=your-application-id
-   MICROSOFT_CLIENT_SECRET=your-client-secret
-   MICROSOFT_TENANT_ID=common  # or your specific tenant ID
-   ```
-
-#### Available Tools
-
-**Authentication**:
-- `authenticate` - Get OAuth URL to authenticate with Microsoft
-- `check-auth-status` - Check if authenticated
-
-**Calendar**:
-- `list-calendars` - List all calendars
-- `list-events` - List calendar events with optional filters
-- `get-event` - Get event details by ID
-- `create-event` - Create a new calendar event
-- `update-event` - Update an existing event
-- `delete-event` - Delete a calendar event
-- `find-meeting-times` - Find available meeting times across attendees
-
-**Email**:
-- `list-messages` - List email messages with filters
-- `get-message` - Get message details by ID
-- `send-message` - Send an email message
-
-### Slack Workspace Integration
-
-The Slack service provides access to channels, messages, canvases, and reminders through Slack Web API.
-
-#### Setup
-
-1. **Create a Slack app**:
-   - Go to [Slack API](https://api.slack.com/apps) → Create New App
-   - Choose "From scratch"
-   - Name your app and select a workspace
-
-2. **Configure OAuth & Permissions**:
-   - Go to OAuth & Permissions
-   - Add redirect URL: `https://localhost:3333/auth/slack/callback` (use HTTPS)
-   - Add the following User Token Scopes:
-     - `channels:read` - View basic channel information
-     - `channels:history` - View messages in public channels
-     - `groups:read` - View basic private channel information
-     - `groups:history` - View messages in private channels
-     - `canvases:read` - View canvas documents
-     - `canvases:write` - Edit canvases (used for read-only access)
-     - `identify` - View user identity information
-     - `reminders:read` - View reminders
-     - `reminders:write` - Create and complete reminders
-
-3. **Get credentials**:
-   - Note the Client ID from Basic Information
-   - Note the Client Secret from Basic Information
-
-4. **Set environment variables**:
-   ```bash
-   SLACK_CLIENT_ID=your-client-id
-   SLACK_CLIENT_SECRET=your-client-secret
-   ```
-
-#### Available Tools
-
-**Authentication**:
-- `authenticate` - Get OAuth URL to authenticate with Slack
-- `check-auth-status` - Check if authenticated
-
-**Channels**:
-- `list-channels` - List public channels (supports pagination)
-- `get-channel-history` - Get message history from a channel
-
-**Private Groups**:
-- `list-groups` - List private channels you're a member of
-- `get-group-history` - Get message history from a private group
-
-**Threads**:
-- `get-thread-replies` - Get replies in a message thread
-
-**Canvases**:
-- `read-canvas` - Read canvas content by ID (returns markdown)
-- `search-canvases` - Search for canvases in a channel
-
-**Identity**:
-- `get-user-identity` - Get authenticated user's profile and team info
-
-**Reminders**:
-- `list-reminders` - List all active reminders
-- `create-reminder` - Create a new reminder
-- `complete-reminder` - Mark a reminder as complete
-
-#### Notes
-
-- **User Tokens**: Slack user tokens do not expire, so no token refresh is needed
-- **Pagination**: All list operations support cursor-based pagination
-- **Private Access**: You can only access private groups you're a member of
-- **Rate Limits**: Slack enforces rate limits per workspace
-
-## Authentication Flow
-
-1. **Start the server**:
-   ```bash
-   npm start
-   ```
-
-2. **Use the authenticate tool** for your service (Microsoft or Slack)
-
-3. **Visit the OAuth URL** provided in the response
-
-4. **Grant permissions** in the OAuth consent screen
-
-5. **Automatic redirect** back to the server with access token
-
-6. **Token storage**: Tokens are saved securely in `.tokens/` directory
-
-7. **Automatic refresh** (Microsoft only): Tokens are refreshed automatically when expired
 
 ## Testing
 
-### Mock Mode
-
-Enable mock mode to test without real API calls:
+**152 total tests** - 129 passing (85% pass rate)
 
 ```bash
-USE_TEST_MODE=true npm test
+npm test                    # Run all tests
+npm test -- oauth-server    # Run specific tests
+npm test:coverage           # Coverage report
 ```
 
-Set mock handlers in tests:
+Core modules: 100% pass rate (50 tests)
+Service modules: 85% pass rate (102 tests)
 
-```typescript
-const client = new MyServiceClient('https://api.example.com', 'my-service');
-client.setMockHandler(async (config) => ({
-  data: { /* mock data */ },
-  status: 200,
-}));
+## Architecture
+
+- **Dual-Port Design**: Separate servers for OAuth (HTTPS :3333) and MCP (HTTP :3334)
+- **Base Classes**: `BaseAPIClient`, `BaseTokenStorage` for service integrations
+- **Service Registry**: Dynamic service registration and tool discovery
+- **StreamableHTTP Transport**: Modern SSE-capable transport for MCP protocol
+- **Token Management**: Automatic refresh with 5-minute buffer
+- **Error Handling**: JSON-RPC error mapping with correlation IDs
+
+### Server Architecture
+
 ```
+Port 3333 (HTTPS) - OAuth Server
+  ├─ GET  /                     → Dashboard
+  ├─ GET  /auth/:service/login  → OAuth flows
+  ├─ GET  /auth/:service/callback → OAuth callbacks
+  └─ GET/POST /mcp              → MCP (backward compatibility)
+
+Port 3334 (HTTP) - MCP Server
+  └─ GET/POST /mcp              → MCP Protocol (primary)
+```
+
+📚 **Detailed architecture docs**: [docs/architecture/http-transport.md](docs/architecture/http-transport.md)
 
 ## Contributing
 
 This project follows:
-- **SpecKit methodology**: Feature specs in `specs/` directory
-- **Test-Driven Development**: Tests before implementation
-- **Skyscanner Production Standards**: See [constitution](.specify/memory/constitution.md)
-
-### Development Workflow
-
-1. Create feature spec in `specs/XXX-feature-name/spec.md`
-2. Get spec approval
-3. Write failing tests
-4. Implement feature
-5. Verify all tests pass
-6. Run linting and formatting
-7. Submit PR with standards checklist
-
-### Code Standards
-
-- TypeScript strict mode (no `any`)
-- 80%+ test coverage
-- Zero ESLint errors
-- TSDoc comments for public APIs
-- Naming: PascalCase (classes), camelCase (functions), kebab-case (files)
+- **SpecKit methodology** - Feature specs in `specs/` directory
+- **Test-Driven Development** - Tests before implementation
+- **Skyscanner Production Standards** - See [constitution](.specify/memory/constitution.md)
 
 ## License
 
@@ -579,12 +206,6 @@ MIT
 
 ## References
 
-- [Constitution](.specify/memory/constitution.md) - Project principles and standards
-- [Feature Specs](specs/) - Detailed feature specifications
-- [MCP Specification](https://spec.modelcontextprotocol.io/) - Model Context Protocol
-- [Skyscanner Production Standards](https://github.com/Skyscanner/production-standards)
-
----
-
-**Version**: 0.3.0
-**Status**: Service Integration Complete ✅ (Features 001-006)
+- [Feature Specs](specs/) - Detailed specifications
+- [MCP Protocol](https://spec.modelcontextprotocol.io/)
+- [Project Constitution](.specify/memory/constitution.md)

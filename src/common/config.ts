@@ -20,8 +20,11 @@ export interface GlobalConfig {
   /** Server version */
   serverVersion: string;
 
-  /** Auth server port */
+  /** Auth server port (OAuth + backward compat MCP) */
   authServerPort: number;
+
+  /** MCP server port (direct HTTP access) */
+  mcpServerPort: number;
 
   /** Whether to use test/mock mode */
   useTestMode: boolean;
@@ -96,6 +99,7 @@ export function loadGlobalConfig(): GlobalConfig {
     serverName: process.env['SERVER_NAME'] ?? 'cerebro-mcp-ts',
     serverVersion: process.env['SERVER_VERSION'] ?? '0.1.0',
     authServerPort: getEnvInt('AUTH_SERVER_PORT', 3333),
+    mcpServerPort: getEnvInt('MCP_SERVER_PORT', 3334),
     useTestMode: getEnvBool('USE_TEST_MODE', false),
     logLevel: process.env['LOG_LEVEL'] ?? 'info',
     nodeEnv: process.env['NODE_ENV'] ?? 'development',
@@ -108,6 +112,7 @@ export function loadGlobalConfig(): GlobalConfig {
         serverName: config.serverName,
         serverVersion: config.serverVersion,
         authServerPort: config.authServerPort,
+        mcpServerPort: config.mcpServerPort,
         useTestMode: config.useTestMode,
         logLevel: config.logLevel,
         nodeEnv: config.nodeEnv,

@@ -21,6 +21,7 @@ import { logger, globalConfig } from '../common';
 import { ServiceConfig } from '../types/service';
 import { BaseTokenStorage } from '../common/base-token-storage';
 import { isTokenExpired } from '../types/token';
+import type { MCPServer } from '../mcp-server';
 
 /**
  * Service registration for auth server
@@ -82,6 +83,7 @@ export class OAuthServer {
   private server?: http.Server | https.Server;
   private readonly protocol: 'http' | 'https';
   private isRunning: boolean = false;
+  private mcpServer?: MCPServer;
 
   constructor(port?: number) {
     this.port = port ?? globalConfig.authServerPort;
@@ -103,6 +105,15 @@ export class OAuthServer {
    * @returns true if certificates exist and can be used
    */
   private detectSSLCertificates(): boolean {
+    // Check if SSL is explicitly disabled via environment variable
+    if (process.env['DISABLE_SSL'] === 'true' || process.env['USE_HTTP'] === 'true') {
+      logger.info({
+        operation: 'ssl_detection',
+        msg: 'SSL disabled via environment variable - will use HTTP',
+      });
+      return false;
+    }
+
     try {
       const certPath = path.join(process.cwd(), 'localhost+2.pem');
       const keyPath = path.join(process.cwd(), 'localhost+2-key.pem');
@@ -150,6 +161,18 @@ export class OAuthServer {
       displayName: registration.name,
       redirectUri: registration.config.oauth.redirectUri,
       msg: `Registered service: ${registration.name}`,
+    });
+  }
+
+  /**
+   * Register MCP server for handling MCP protocol routes
+   * @param mcpServer MCP server instance
+   */
+  registerMCPServer(mcpServer: MCPServer): void {
+    this.mcpServer = mcpServer;
+    logger.info({
+      operation: 'mcp_server_registered',
+      msg: 'MCP server registered with OAuth server for unified HTTP routing',
     });
   }
 
@@ -299,6 +322,16 @@ export class OAuthServer {
     });
 
     try {
+      // Handle MCP routes first
+      if (pathname === '/mcp' || pathname.startsWith('/mcp/')) {
+        if (!this.mcpServer) {
+          this.renderError(res, 'MCP Not Available', 'MCP server not registered');
+          return;
+        }
+        await this.mcpServer.handleRequest(req, res);
+        return;
+      }
+
       // Handle legacy routes for backward compatibility
       if (pathname === '/auth/callback') {
         await this.handleLegacyCallback(query, res);

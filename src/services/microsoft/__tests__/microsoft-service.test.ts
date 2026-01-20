@@ -11,21 +11,38 @@ describe('MicrosoftService', () => {
   let config: ServiceConfig;
   const testTokenPath = './.tokens/test-microsoft-tokens.json';
 
-  beforeEach(() => {
+  beforeEach(async () => {
     config = {
       name: 'microsoft-test',
+      displayName: 'Microsoft Test',
+      apiEndpoint: 'https://graph.microsoft.com/v1.0',
       oauth: {
         clientId: 'test-client-id',
         clientSecret: 'test-client-secret',
         tenantId: 'test-tenant-id',
         redirectUri: 'http://localhost:3333/auth/microsoft/callback',
         scopes: ['offline_access', 'Mail.Read', 'Mail.Send'],
+        authEndpoint: 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize',
+        tokenEndpoint: 'https://login.microsoftonline.com/common/oauth2/v2.0/token',
       },
-      tokenStoragePath: testTokenPath,
+      tokenStorePath: testTokenPath,
     };
 
     // Set test mode
     process.env['USE_TEST_MODE'] = 'true';
+
+    // Create mock token file for testing
+    await fs.mkdir('./.tokens', { recursive: true });
+    await fs.writeFile(
+      testTokenPath,
+      JSON.stringify({
+        accessToken: 'mock-access-token',
+        refreshToken: 'mock-refresh-token',
+        expiresAt: Date.now() + 3600000, // 1 hour from now
+        tokenType: 'Bearer',
+        scopes: ['offline_access', 'Mail.Read', 'Mail.Send'],
+      })
+    );
 
     service = new MicrosoftService(config);
   });
@@ -49,16 +66,16 @@ describe('MicrosoftService', () => {
       await expect(service.initialize()).resolves.not.toThrow();
     });
 
-    it('should not be authenticated initially', async () => {
+    it('should be authenticated with mock tokens', async () => {
       await service.initialize();
-      expect(await service.isAuthenticated()).toBe(false);
+      expect(await service.isAuthenticated()).toBe(true);
     });
   });
 
   describe('getTools', () => {
-    it('should return three tools', () => {
+    it('should return 11 tools (2 auth + 3 email + 6 calendar)', () => {
       const tools = service.getTools();
-      expect(tools).toHaveLength(3);
+      expect(tools).toHaveLength(11);
     });
 
     it('should return list-emails tool', () => {

@@ -44,7 +44,11 @@ describe('Error Mapper', () => {
     });
 
     it('should map ToolExecutionError', () => {
-      const error = new ToolExecutionError('test_tool', new Error('Execution failed'), 'exec_error');
+      const error = new ToolExecutionError(
+        'test_tool',
+        new Error('Execution failed'),
+        'exec_error'
+      );
       const result = mapErrorToJSONRPC(error);
 
       expect(result.code).toBe(-32002);

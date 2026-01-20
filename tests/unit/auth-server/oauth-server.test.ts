@@ -9,6 +9,7 @@ import { BaseTokenStorage } from '../../../src/common/base-token-storage';
 import { ServiceConfig } from '../../../src/types/service';
 import { TokenData } from '../../../src/types/token';
 import * as http from 'http';
+import * as https from 'https';
 
 /**
  * Mock token storage for testing
@@ -72,12 +73,13 @@ function createMockServiceConfig(serviceName: string): ServiceConfig {
 }
 
 /**
- * Make HTTP request to server
+ * Make HTTP/HTTPS request to server
  */
 function makeRequest(
   port: number,
   path: string,
-  method: string = 'GET'
+  method: string = 'GET',
+  useHttps: boolean = true
 ): Promise<{ statusCode: number; body: string; headers: http.IncomingHttpHeaders }> {
   return new Promise((resolve, reject) => {
     const options = {
@@ -85,9 +87,11 @@ function makeRequest(
       port,
       path,
       method,
+      rejectUnauthorized: false, // Allow self-signed certificates
     };
 
-    const req = http.request(options, (res) => {
+    const protocol = useHttps ? https : http;
+    const req = protocol.request(options, (res) => {
       let body = '';
       res.on('data', (chunk) => {
         body += chunk;
@@ -200,7 +204,7 @@ describe('OAuthServer', () => {
       const response = await makeRequest(testPort, '/');
 
       expect(response.statusCode).toBe(200);
-      expect(response.body).toContain('Unified Authentication Server');
+      expect(response.body).toContain('Authentication Dashboard');
       expect(response.body).toContain('Test Service');
     });
 

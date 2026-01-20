@@ -4,6 +4,7 @@
  * Main entry point for the MCP server.
  */
 
+import * as http from 'http';
 import { logger, globalConfig, ServiceRegistry } from './common';
 import { OAuthServer } from './auth-server';
 import { MCPServer } from './mcp-server';
@@ -13,6 +14,7 @@ import type { BaseTokenStorage } from './common/base-token-storage';
 
 let oauthServer: OAuthServer | undefined;
 let mcpServer: MCPServer | undefined;
+let mcpHttpServer: http.Server | undefined;
 const serviceRegistry = new ServiceRegistry();
 
 async function main(): Promise<void> {
@@ -29,8 +31,15 @@ async function main(): Promise<void> {
     // 1. Initialize service registry and register available services
     await registerServices(serviceRegistry);
 
-    // 2. Start OAuth authentication server (port 3333)
+    // 2. Create MCP server (without transport - will use HTTP)
+    mcpServer = new MCPServer(serviceRegistry);
+    await mcpServer.start();
+
+    // 3. Start OAuth authentication server (unified HTTP server on port 3333)
     oauthServer = new OAuthServer();
+
+    // Register MCP server with OAuth server for unified routing
+    oauthServer.registerMCPServer(mcpServer);
 
     // Register services with OAuth server for authentication
     for (const [serviceName, service] of serviceRegistry.services.entries()) {
@@ -58,19 +67,73 @@ async function main(): Promise<void> {
 
     logger.info({
       operation: 'oauth_server_init',
-      msg: 'OAuth server initialized',
+      msg: 'Unified HTTP server initialized (OAuth + MCP)',
     });
     await oauthServer.start();
 
-    // 3. Start MCP server (stdio transport)
-    mcpServer = new MCPServer(serviceRegistry);
-    await mcpServer.start();
+    // 4. Start standalone MCP HTTP server on separate port
+    mcpHttpServer = http.createServer(async (req, res) => {
+      try {
+        if (!mcpServer) {
+          logger.error({ operation: 'mcp_http_request_error', msg: 'MCP server not initialized' });
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'MCP Server Not Initialized' }));
+          return;
+        }
+
+        await mcpServer.handleRequest(req, res);
+      } catch (error) {
+        logger.error({
+          operation: 'mcp_http_request_error',
+          error: error instanceof Error ? error.message : String(error),
+          msg: 'Error handling MCP HTTP request',
+        });
+
+        if (!res.headersSent) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Internal Server Error' }));
+        }
+      }
+    });
+
+    // Start listening on MCP port
+    await new Promise<void>((resolve, reject) => {
+      mcpHttpServer!.listen(globalConfig.mcpServerPort, 'localhost', () => {
+        logger.info({
+          operation: 'mcp_http_server_started',
+          port: globalConfig.mcpServerPort,
+          protocol: 'http',
+          endpoint: `http://localhost:${globalConfig.mcpServerPort}/mcp`,
+          msg: `MCP HTTP server listening on http://localhost:${globalConfig.mcpServerPort}`,
+        });
+        resolve();
+      });
+
+      mcpHttpServer!.on('error', (error) => {
+        logger.error({
+          operation: 'mcp_http_server_error',
+          port: globalConfig.mcpServerPort,
+          error: error.message,
+          msg: 'MCP HTTP server error',
+        });
+        reject(error);
+      });
+    });
+
+    // Determine OAuth protocol
+    const protocol = oauthServer['protocol'] || 'http';
 
     logger.info({
-      operation: 'server_ready',
+      operation: 'servers_ready',
       oauthPort: globalConfig.authServerPort,
+      oauthProtocol: protocol,
+      oauthDashboard: `${protocol}://localhost:${globalConfig.authServerPort}/`,
+      oauthMcpEndpoint: `${protocol}://localhost:${globalConfig.authServerPort}/mcp`,
+      mcpPort: globalConfig.mcpServerPort,
+      mcpProtocol: 'http',
+      mcpEndpoint: `http://localhost:${globalConfig.mcpServerPort}/mcp`,
       servicesCount: serviceRegistry.list().length,
-      msg: 'Server ready. OAuth server and MCP server running.',
+      msg: 'All servers ready. OAuth (HTTPS) on :3333, MCP (HTTP) on :3334',
     });
   } catch (error) {
     logger.error({
@@ -84,15 +147,35 @@ async function main(): Promise<void> {
 
 // Graceful shutdown handler
 async function shutdown(): Promise<void> {
-  logger.info({ operation: 'shutdown', msg: 'Shutting down server...' });
+  logger.info({ operation: 'shutdown', msg: 'Shutting down servers...' });
 
-  // Stop MCP server first (close stdio transport)
+  // Stop MCP server
   if (mcpServer) {
     try {
       await mcpServer.stop();
     } catch (error) {
       logger.error({
         operation: 'mcp_shutdown_error',
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  // Stop MCP HTTP server
+  if (mcpHttpServer) {
+    try {
+      await new Promise<void>((resolve) => {
+        mcpHttpServer!.close(() => {
+          logger.info({
+            operation: 'mcp_http_server_stopped',
+            msg: 'MCP HTTP server stopped',
+          });
+          resolve();
+        });
+      });
+    } catch (error) {
+      logger.error({
+        operation: 'mcp_http_shutdown_error',
         error: error instanceof Error ? error.message : String(error),
       });
     }
@@ -120,7 +203,7 @@ async function shutdown(): Promise<void> {
     });
   }
 
-  logger.info({ operation: 'shutdown_complete', msg: 'Server shutdown complete' });
+  logger.info({ operation: 'shutdown_complete', msg: 'All servers shutdown complete' });
   process.exit(0);
 }
 

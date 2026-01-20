@@ -13,9 +13,10 @@ describe('MCPServer', () => {
   let mockRegistry: ServiceRegistry;
 
   beforeEach(() => {
+    const getFn = jest.fn();
     mockRegistry = {
       register: jest.fn(),
-      get: jest.fn(),
+      get: getFn,
       list: jest.fn(),
       getAllTools: jest.fn(),
       shutdownAll: jest.fn(),
@@ -48,10 +49,10 @@ describe('MCPServer', () => {
       expect(server).toBeDefined();
     });
 
-    it('should execute a tool via registry', async () => {
+    it('should execute a tool via registry', () => {
       // Tool execution would happen through standard MCP protocol
       expect(server).toBeDefined();
-      expect(mockRegistry.get).toBeDefined();
+      expect(typeof mockRegistry.get).toBe('function');
     });
   });
 

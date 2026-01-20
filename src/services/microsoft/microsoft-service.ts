@@ -828,7 +828,8 @@ export class MicrosoftService implements BaseService {
     return {
       success: true,
       authUrl,
-      message: 'Please visit the URL to complete authentication. The OAuth server must be running at https://localhost:3333',
+      message:
+        'Please visit the URL to complete authentication. The OAuth server must be running at https://localhost:3333',
     };
   }
 

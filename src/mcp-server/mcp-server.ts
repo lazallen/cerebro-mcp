@@ -1,12 +1,14 @@
 /**
  * MCP Server Implementation
  *
- * Implements Model Context Protocol server with stdio transport.
+ * Implements Model Context Protocol server with Streamable HTTP transport.
  * Handles tool discovery, tool execution, and error responses.
  */
 
+import * as http from 'http';
+import { randomUUID } from 'crypto';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { ServiceRegistry } from '../common/service-registry';
 import { logger, generateCorrelationId, globalConfig } from '../common';
@@ -23,7 +25,7 @@ import {
  * MCP Server class
  */
 export class MCPServer {
-  private readonly transport: StdioServerTransport;
+  private readonly transport: StreamableHTTPServerTransport;
   private readonly server: Server;
   private readonly serviceRegistry: ServiceRegistry;
   private readonly timeout: number;
@@ -36,8 +38,10 @@ export class MCPServer {
     this.timeout = parseInt(process.env['MCP_TIMEOUT'] ?? '30000', 10);
     this.logToolInput = process.env['MCP_LOG_TOOL_INPUT'] === 'true';
 
-    // Create stdio transport
-    this.transport = new StdioServerTransport();
+    // Create Streamable HTTP transport (stateful mode with session management)
+    this.transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: () => randomUUID(),
+    });
 
     // Create MCP server
     this.server = new Server(
@@ -56,7 +60,7 @@ export class MCPServer {
       operation: 'mcp_server_init',
       timeout: this.timeout,
       logToolInput: this.logToolInput,
-      msg: 'MCP server initialized',
+      msg: 'MCP server initialized with Streamable HTTP transport',
     });
   }
 
@@ -74,7 +78,7 @@ export class MCPServer {
       logger.info({
         operation: 'mcp_server_started',
         serviceCount: this.serviceRegistry.list().length,
-        msg: 'MCP server started with stdio transport',
+        msg: 'MCP server started with Streamable HTTP transport',
       });
     } catch (error) {
       logger.error({
@@ -83,6 +87,37 @@ export class MCPServer {
         msg: 'Failed to start MCP server',
       });
       throw error;
+    }
+  }
+
+  /**
+   * Handle HTTP request (GET for SSE or POST for messages)
+   * This method handles both SSE connections and message posts
+   */
+  async handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    try {
+      logger.info({
+        operation: 'mcp_http_request',
+        method: req.method,
+        url: req.url,
+        msg: `MCP HTTP request: ${req.method ?? 'GET'} ${req.url ?? '/'}`,
+      });
+
+      // Delegate to the Streamable HTTP transport
+      await this.transport.handleRequest(req, res);
+    } catch (error) {
+      logger.error({
+        operation: 'mcp_http_request_error',
+        method: req.method,
+        url: req.url,
+        error: error instanceof Error ? error.message : String(error),
+        msg: 'Error handling MCP HTTP request',
+      });
+
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Internal Server Error' }));
+      }
     }
   }
 
