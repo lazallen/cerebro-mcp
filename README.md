@@ -97,6 +97,7 @@ MICROSOFT_TENANT_ID=common
 # Slack (optional)
 SLACK_CLIENT_ID=your-client-id
 SLACK_CLIENT_SECRET=your-client-secret
+SLACK_APP_TOKEN=xapp-your-app-level-token  # For Socket Mode (message shortcuts)
 
 # Testing (optional)
 USE_TEST_MODE=false
@@ -105,6 +106,16 @@ USE_TEST_MODE=false
 **OAuth Setup:**
 - Microsoft: Redirect URI = `https://localhost:3333/auth/microsoft/callback`
 - Slack: Redirect URI = `https://localhost:3333/auth/slack/callback`
+
+**Slack Message Shortcuts (Socket Mode):**
+To enable message shortcuts (flag messages for Claude triage):
+1. In your Slack app, enable **Socket Mode** under Settings
+2. Generate an **App Level Token** with `connections:write` scope
+3. Copy the token (starts with `xapp-`) to `SLACK_APP_TOKEN` in `.env`
+4. Enable **Interactivity & Shortcuts** in your app
+5. Create a **Message Shortcut** with your desired callback_id
+
+Socket Mode connects via WebSocket - no public URL or ngrok required.
 
 **Ports:**
 - Port 3333: OAuth authentication (HTTPS) - **do not change** (OAuth apps registered on this port)
@@ -134,7 +145,7 @@ npm run start:pretty
 - **Email**: list-emails, read-email, send-email
 - **Calendar**: list-events, get-event, create-event, update-event, delete-event, find-meeting-times
 
-**Slack** (13 tools):
+**Slack** (16 tools):
 - **Auth**: authenticate, check-auth-status
 - **Channels**: list-channels, get-channel-history
 - **Groups**: list-groups, get-group-history
@@ -142,6 +153,7 @@ npm run start:pretty
 - **Canvas**: read-canvas, search-canvases
 - **User**: get-user-identity
 - **Reminders**: list-reminders, create-reminder, complete-reminder
+- **Message Actions**: list-message-actions, get-message-action, delete-message-action
 
 ## Project Structure
 
@@ -189,6 +201,9 @@ Port 3333 (HTTPS) - OAuth Server
 
 Port 3334 (HTTP) - MCP Server
   └─ GET/POST /mcp              → MCP Protocol (primary)
+
+Socket Mode (WebSocket) - Slack Events
+  └─ wss://wss.slack.com        → Message shortcuts via Socket Mode
 ```
 
 📚 **Detailed architecture docs**: [docs/architecture/http-transport.md](docs/architecture/http-transport.md)
