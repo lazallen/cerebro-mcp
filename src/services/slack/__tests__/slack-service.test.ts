@@ -85,9 +85,9 @@ describe('SlackService', () => {
   });
 
   describe('tool registration', () => {
-    it('should return 13 tools', () => {
+    it('should return 16 tools', () => {
       const tools = service.getTools();
-      expect(tools).toHaveLength(13);
+      expect(tools).toHaveLength(16);
     });
 
     it('should have all tools defined with correct names', () => {
@@ -106,6 +106,9 @@ describe('SlackService', () => {
         'list-reminders',
         'create-reminder',
         'complete-reminder',
+        'list-message-actions',
+        'get-message-action',
+        'delete-message-action',
       ];
 
       expectedTools.forEach((toolName) => {
@@ -481,6 +484,70 @@ describe('SlackService', () => {
         const completeReminder = tools.find((t) => t.name === 'complete-reminder');
 
         await expect(completeReminder?.handler({})).rejects.toThrow();
+      });
+    });
+  });
+
+  describe('message action tools', () => {
+    beforeEach(async () => {
+      await service.initialize();
+    });
+
+    describe('list-message-actions tool', () => {
+      it('should return empty array when no actions stored', async () => {
+        const tools = service.getTools();
+        const listActions = tools.find((t) => t.name === 'list-message-actions');
+
+        const result = await listActions?.handler({});
+        expect(result).toHaveProperty('actions');
+        expect(result).toHaveProperty('total');
+        expect((result as { actions: unknown[]; total: number }).actions).toBeInstanceOf(Array);
+        expect((result as { total: number }).total).toBe(0);
+      });
+
+      it('should accept processed filter parameter', async () => {
+        const tools = service.getTools();
+        const listActions = tools.find((t) => t.name === 'list-message-actions');
+
+        const result = await listActions?.handler({ processed: false });
+        expect(result).toHaveProperty('actions');
+        expect(result).toHaveProperty('total');
+      });
+    });
+
+    describe('get-message-action tool', () => {
+      it('should return not_found error for non-existent ID', async () => {
+        const tools = service.getTools();
+        const getAction = tools.find((t) => t.name === 'get-message-action');
+
+        const result = await getAction?.handler({ id: 'non-existent-uuid' });
+        expect(result).toHaveProperty('error');
+        expect((result as { error: string }).error).toBe('not_found');
+      });
+
+      it('should have id as required parameter', () => {
+        const tools = service.getTools();
+        const getAction = tools.find((t) => t.name === 'get-message-action');
+
+        expect(getAction?.inputSchema.required).toContain('id');
+      });
+    });
+
+    describe('delete-message-action tool', () => {
+      it('should return not_found error for non-existent ID', async () => {
+        const tools = service.getTools();
+        const deleteAction = tools.find((t) => t.name === 'delete-message-action');
+
+        const result = await deleteAction?.handler({ id: 'non-existent-uuid' });
+        expect(result).toHaveProperty('error');
+        expect((result as { error: string }).error).toBe('not_found');
+      });
+
+      it('should have id as required parameter', () => {
+        const tools = service.getTools();
+        const deleteAction = tools.find((t) => t.name === 'delete-message-action');
+
+        expect(deleteAction?.inputSchema.required).toContain('id');
       });
     });
   });

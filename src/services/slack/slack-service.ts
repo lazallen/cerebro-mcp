@@ -14,18 +14,24 @@ import { Tool } from '../../types/tool';
 import { logger } from '../../common';
 import { SlackTokenStorage } from './token-storage';
 import { SlackApiClient } from './api-client';
+import { MessageActionStorage } from './message-action-storage';
+import { SlackSocketModeClient } from './slack-socket-client';
+import type { MessageActionSummary, StoredMessageAction } from '../../types/slack-message-action';
 
 export class SlackService implements BaseService {
   public readonly config: ServiceConfig;
   public readonly name: string;
   private readonly tokenStorage: SlackTokenStorage;
   private readonly apiClient: SlackApiClient;
+  private readonly messageActionStorage: MessageActionStorage;
+  private socketModeClient: SlackSocketModeClient | null = null;
 
   constructor(config: ServiceConfig) {
     this.config = config;
     this.name = config.name;
     this.tokenStorage = new SlackTokenStorage(config);
     this.apiClient = new SlackApiClient(this.tokenStorage);
+    this.messageActionStorage = new MessageActionStorage();
   }
 
   async initialize(): Promise<void> {
@@ -35,6 +41,9 @@ export class SlackService implements BaseService {
       hasTokens: await this.isAuthenticated(),
       msg: 'Slack service initialized',
     });
+
+    // Initialize Socket Mode if app token is configured
+    await this.initializeSocketMode();
   }
 
   getTools(): Tool[] {
@@ -289,6 +298,54 @@ export class SlackService implements BaseService {
         },
         handler: this.completeReminder.bind(this),
       },
+
+      // Message Action Tools (for triage workflow)
+      {
+        name: 'list-message-actions',
+        description:
+          'List stored Slack message actions captured via message shortcuts. Returns summaries with channel, user, and message preview.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            processed: {
+              type: 'boolean',
+              description: 'Filter by processed status. Omit to return all actions.',
+            },
+          },
+        },
+        handler: this.listMessageActions.bind(this),
+      },
+      {
+        name: 'get-message-action',
+        description:
+          'Get full details of a stored message action by ID, including the complete Slack payload.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            id: {
+              type: 'string',
+              description: 'The action ID (UUID)',
+            },
+          },
+          required: ['id'],
+        },
+        handler: this.getMessageAction.bind(this),
+      },
+      {
+        name: 'delete-message-action',
+        description: 'Delete a stored message action after processing/triage.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            id: {
+              type: 'string',
+              description: 'The action ID (UUID) to delete',
+            },
+          },
+          required: ['id'],
+        },
+        handler: this.deleteMessageAction.bind(this),
+      },
     ];
   }
 
@@ -304,6 +361,85 @@ export class SlackService implements BaseService {
       service: this.name,
       msg: 'Shutting down Slack service',
     });
+
+    // Disconnect Socket Mode client if connected
+    if (this.socketModeClient) {
+      this.socketModeClient.disconnect();
+      this.socketModeClient = null;
+    }
+  }
+
+  /**
+   * Initialize Socket Mode client if SLACK_APP_TOKEN is configured
+   */
+  private async initializeSocketMode(): Promise<void> {
+    const appToken = process.env['SLACK_APP_TOKEN'];
+
+    if (!appToken) {
+      logger.info({
+        operation: 'socket_mode_skip',
+        msg: 'Socket Mode not enabled: SLACK_APP_TOKEN not configured',
+      });
+      return;
+    }
+
+    if (!appToken.startsWith('xapp-')) {
+      logger.warn({
+        operation: 'socket_mode_skip',
+        msg: 'Socket Mode not enabled: SLACK_APP_TOKEN must start with "xapp-"',
+      });
+      return;
+    }
+
+    logger.info({
+      operation: 'socket_mode_init',
+      msg: 'Initializing Socket Mode client...',
+    });
+
+    this.socketModeClient = new SlackSocketModeClient({
+      appToken,
+      onMessageAction: (payload) => {
+        try {
+          const stored = this.messageActionStorage.add(payload);
+          logger.info({
+            operation: 'socket_message_action_stored',
+            actionId: stored.id,
+            channel: payload.channel?.name,
+            user: payload.user?.username,
+            msg: `Stored message action: ${stored.id}`,
+          });
+        } catch (error) {
+          logger.error({
+            operation: 'socket_message_action_storage_error',
+            error: error instanceof Error ? error.message : String(error),
+            msg: 'Failed to store message action from Socket Mode',
+          });
+        }
+      },
+      onConnected: () => {
+        logger.info({
+          operation: 'socket_mode_connected',
+          msg: 'Socket Mode connected - ready to receive message actions',
+        });
+      },
+      onDisconnected: () => {
+        logger.info({
+          operation: 'socket_mode_disconnected',
+          msg: 'Socket Mode disconnected',
+        });
+      },
+    });
+
+    try {
+      await this.socketModeClient.connect();
+    } catch (error) {
+      logger.error({
+        operation: 'socket_mode_connect_error',
+        error: error instanceof Error ? error.message : String(error),
+        msg: 'Failed to connect Socket Mode client (will retry automatically)',
+      });
+      // Don't throw - the client will retry automatically
+    }
   }
 
   /**
@@ -702,6 +838,103 @@ export class SlackService implements BaseService {
     return {
       success: true,
       reminderId,
+    };
+  }
+
+  // ============================================================================
+  // Message Action Tools (for triage workflow)
+  // ============================================================================
+
+  /**
+   * List stored message actions
+   */
+  // eslint-disable-next-line @typescript-eslint/require-await
+  private async listMessageActions(input: Record<string, unknown>): Promise<unknown> {
+    const processedFilter = input['processed'] as boolean | undefined;
+
+    const options = processedFilter !== undefined ? { processed: processedFilter } : {};
+    const actions: MessageActionSummary[] = this.messageActionStorage.list(options);
+    const total = actions.length;
+
+    logger.debug({
+      operation: 'list_message_actions',
+      total,
+      filter: processedFilter,
+      msg: `Listed ${total} message actions`,
+    });
+
+    return {
+      actions,
+      total,
+    };
+  }
+
+  /**
+   * Get full details of a message action by ID
+   */
+  // eslint-disable-next-line @typescript-eslint/require-await
+  private async getMessageAction(input: Record<string, unknown>): Promise<unknown> {
+    const id = input['id'] as string;
+
+    const action: StoredMessageAction | null = this.messageActionStorage.get(id);
+
+    if (!action) {
+      logger.debug({
+        operation: 'get_message_action',
+        id,
+        found: false,
+        msg: `Message action not found: ${id}`,
+      });
+
+      return {
+        error: 'not_found',
+        message: `Action with ID '${id}' not found`,
+      };
+    }
+
+    logger.debug({
+      operation: 'get_message_action',
+      id,
+      found: true,
+      msg: `Retrieved message action: ${id}`,
+    });
+
+    return action;
+  }
+
+  /**
+   * Delete a message action by ID
+   */
+  // eslint-disable-next-line @typescript-eslint/require-await
+  private async deleteMessageAction(input: Record<string, unknown>): Promise<unknown> {
+    const id = input['id'] as string;
+
+    const deleted = this.messageActionStorage.delete(id);
+
+    if (!deleted) {
+      logger.debug({
+        operation: 'delete_message_action',
+        id,
+        success: false,
+        msg: `Message action not found for deletion: ${id}`,
+      });
+
+      return {
+        error: 'not_found',
+        message: `Action with ID '${id}' not found`,
+      };
+    }
+
+    logger.info({
+      operation: 'delete_message_action',
+      id,
+      success: true,
+      msg: `Deleted message action: ${id}`,
+    });
+
+    return {
+      success: true,
+      deletedId: id,
     };
   }
 }
