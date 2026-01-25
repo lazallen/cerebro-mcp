@@ -52,17 +52,24 @@ export interface ServiceRoute {
  * Service authentication status for dashboard
  */
 export interface ServiceStatus {
-  /** Service name (e.g., 'microsoft', 'slack') */
+  /** Service name (e.g., 'microsoft', 'slack', 'local') */
   serviceName: string;
 
-  /** Display name (e.g., 'Microsoft 365', 'Slack') */
+  /** Display name (e.g., 'Microsoft 365', 'Slack', 'LocalFoundry') */
   displayName: string;
 
-  /** Login URL for this service */
+  /** Login URL for this service (empty string for non-OAuth services) */
   loginUrl: string;
 
   /** Authentication state */
-  state: 'connected' | 'expired' | 'requires_auth' | 'error';
+  state:
+    | 'connected'
+    | 'expired'
+    | 'requires_auth'
+    | 'error'
+    | 'available'
+    | 'unavailable'
+    | 'not_configured';
 
   /** Status message */
   message: string;
@@ -72,6 +79,12 @@ export interface ServiceStatus {
 
   /** Granted OAuth scopes */
   scopes?: string[];
+
+  /** Service endpoint URL (for non-OAuth services like LocalFoundry) */
+  endpoint?: string;
+
+  /** Model name (for LLM services like LocalFoundry) */
+  model?: string;
 }
 
 /**
@@ -673,12 +686,86 @@ export class OAuthServer {
   private async getServiceStatuses(): Promise<ServiceStatus[]> {
     const statuses: ServiceStatus[] = [];
 
+    // Get OAuth service statuses
     for (const [serviceName, registration] of this.services.entries()) {
       const status = await this.checkServiceAuthStatus(serviceName, registration);
       statuses.push(status);
     }
 
+    // Get LocalFoundry status from MCP server's service registry
+    if (this.mcpServer) {
+      const localFoundryStatus = await this.checkLocalFoundryStatus();
+      if (localFoundryStatus) {
+        statuses.push(localFoundryStatus);
+      }
+    }
+
     return statuses;
+  }
+
+  /**
+   * Check LocalFoundry service status
+   * @returns LocalFoundry service status or null if not configured
+   */
+  private async checkLocalFoundryStatus(): Promise<ServiceStatus | null> {
+    try {
+      // Access the service registry through the MCP server
+      const services = (this.mcpServer as any)?.serviceRegistry?.list() || [];
+      const localService = services.find((s: any) => s.name === 'local');
+
+      if (!localService) {
+        // LocalFoundry not configured
+        return {
+          serviceName: 'local',
+          displayName: 'LocalFoundry',
+          loginUrl: '',
+          state: 'not_configured',
+          message: 'LocalFoundry not configured. Set LOCALFOUNDRY_ENDPOINT environment variable.',
+        };
+      }
+
+      // Check if LocalFoundry endpoint is available
+      const isAvailable = await localService.isAuthenticated();
+      const config = localService.config;
+
+      if (isAvailable) {
+        return {
+          serviceName: 'local',
+          displayName: 'LocalFoundry',
+          loginUrl: '',
+          state: 'available',
+          message: 'LocalFoundry endpoint is available and responding',
+          endpoint: config.apiEndpoint,
+          model: localService.localFoundryConfig?.model || 'phi-4',
+        };
+      } else {
+        return {
+          serviceName: 'local',
+          displayName: 'LocalFoundry',
+          loginUrl: '',
+          state: 'unavailable',
+          message: `LocalFoundry endpoint at ${config.apiEndpoint} is not reachable. Ensure LocalFoundry is running.`,
+          endpoint: config.apiEndpoint,
+          model: localService.localFoundryConfig?.model || 'phi-4',
+        };
+      }
+    } catch (error) {
+      logger.warn(
+        {
+          operation: 'localfoundry_status_check',
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Error checking LocalFoundry status'
+      );
+
+      return {
+        serviceName: 'local',
+        displayName: 'LocalFoundry',
+        loginUrl: '',
+        state: 'error',
+        message: `Error checking status: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      };
+    }
   }
 
   /**
@@ -693,6 +780,11 @@ export class OAuthServer {
         color: '#5cb85c',
         bgColor: '#d4edda',
       },
+      available: {
+        badge: '✓ Available',
+        color: '#5cb85c',
+        bgColor: '#d4edda',
+      },
       expired: {
         badge: '! Expired',
         color: '#f0ad4e',
@@ -700,6 +792,16 @@ export class OAuthServer {
       },
       requires_auth: {
         badge: '○ Not Authenticated',
+        color: '#6c757d',
+        bgColor: '#e9ecef',
+      },
+      unavailable: {
+        badge: '○ Unavailable',
+        color: '#f0ad4e',
+        bgColor: '#fff3cd',
+      },
+      not_configured: {
+        badge: '○ Not Configured',
         color: '#6c757d',
         bgColor: '#e9ecef',
       },
@@ -723,6 +825,26 @@ export class OAuthServer {
       details += `<p><strong>Scopes:</strong> ${status.scopes.join(', ')}</p>`;
     }
 
+    // Add endpoint and model for non-OAuth services (like LocalFoundry)
+    if (status.endpoint) {
+      details += `<p><strong>Endpoint:</strong> ${status.endpoint}</p>`;
+    }
+
+    if (status.model) {
+      details += `<p><strong>Model:</strong> ${status.model}</p>`;
+    }
+
+    // Show auth button only for OAuth services (those with a loginUrl)
+    const authButton = status.loginUrl
+      ? `
+        <div class="service-actions">
+          <a href="${status.loginUrl}" class="btn btn-primary">
+            ${status.state === 'connected' ? 'Re-authenticate' : 'Authenticate'}
+          </a>
+        </div>
+      `
+      : '';
+
     return `
       <div class="service-card" style="border-color: ${config.color};">
         <div class="service-header">
@@ -734,11 +856,7 @@ export class OAuthServer {
         <div class="service-details">
           ${details}
         </div>
-        <div class="service-actions">
-          <a href="${status.loginUrl}" class="btn btn-primary">
-            ${status.state === 'connected' ? 'Re-authenticate' : 'Authenticate'}
-          </a>
-        </div>
+        ${authButton}
       </div>
     `;
   }

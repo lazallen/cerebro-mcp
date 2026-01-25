@@ -1,0 +1,11 @@
+# Prettier ignore patterns
+node_modules/
+dist/
+build/
+coverage/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+.tokens/
+.cerebro-tokens/
+specs/

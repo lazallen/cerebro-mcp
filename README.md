@@ -1,14 +1,15 @@
 # Cerebro MCP TypeScript
 
-TypeScript MCP server providing Claude with access to Microsoft 365, Slack, and extensible service integrations via a unified HTTP server.
+TypeScript MCP server providing Claude with access to Microsoft 365, Slack, LocalFoundry LLM, and extensible service integrations via a unified HTTP server.
 
 ## Features
 
 - **Dual-Port Architecture** - OAuth (HTTPS :3333) + MCP (HTTP :3334) for security and compatibility
-- **Multi-Service** - Microsoft 365 (email, calendar) and Slack (channels, messages, reminders)
+- **Multi-Service** - Microsoft 365 (email, calendar), Slack (channels, messages, reminders), and LocalFoundry (local LLM text processing)
 - **Type-Safe** - TypeScript strict mode, no `any` types
 - **OAuth 2.0** - Automatic token refresh and web-based authentication dashboard
 - **Streamable HTTP** - Modern MCP transport compatible with Claude Code
+- **Local AI** - LocalFoundry integration for text summarization, clarification, and extraction
 - **Production-Ready** - Structured logging, comprehensive tests, follows Skyscanner standards
 
 ## Quick Start
@@ -99,6 +100,11 @@ SLACK_CLIENT_ID=your-client-id
 SLACK_CLIENT_SECRET=your-client-secret
 SLACK_APP_TOKEN=xapp-your-app-level-token  # For Socket Mode (message shortcuts)
 
+# LocalFoundry (optional) - Local LLM text processing
+LOCALFOUNDRY_ENDPOINT=http://localhost:8080/v1/chat/completions
+LOCALFOUNDRY_MODEL=phi-4
+LOCALFOUNDRY_TIMEOUT=60000
+
 # Testing (optional)
 USE_TEST_MODE=false
 ```
@@ -155,15 +161,21 @@ npm run start:pretty
 - **Reminders**: list-reminders, create-reminder, complete-reminder
 - **Message Actions**: list-message-actions, get-message-action, delete-message-action
 
+**LocalFoundry** (3 tools) - Local LLM text processing:
+- **summarize**: Summarize long text content concisely (up to 50K characters)
+- **clarify**: Answer specific questions about provided text
+- **extract**: Extract structured JSON data from unstructured text
+
 ## Project Structure
 
 ```
 src/
 ├── auth-server/        # OAuth HTTP server
 ├── mcp-server/         # MCP protocol handler
-├── services/           # Service integrations (Microsoft, Slack)
+├── services/           # Service integrations (Microsoft, Slack, LocalFoundry)
 │   ├── microsoft/
-│   └── slack/
+│   ├── slack/
+│   └── localfoundry/   # Local LLM text processing
 ├── common/            # Shared utilities (logging, config, base classes)
 └── types/             # TypeScript interfaces
 ```
@@ -208,12 +220,109 @@ Socket Mode (WebSocket) - Slack Events
 
 📚 **Detailed architecture docs**: [docs/architecture/http-transport.md](docs/architecture/http-transport.md)
 
+## LocalFoundry Integration
+
+LocalFoundry provides local LLM text processing without cloud services or authentication. Features include:
+
+### Configuration
+
+Add to your `.env` file:
+```bash
+# LocalFoundry LLM endpoint (required)
+LOCALFOUNDRY_ENDPOINT=http://localhost:8080/v1/chat/completions
+
+# Model name (optional, default: phi-4)
+LOCALFOUNDRY_MODEL=phi-4
+
+# Request timeout in milliseconds (optional, default: 60000)
+LOCALFOUNDRY_TIMEOUT=60000
+```
+
+### Available Tools
+
+**`local.summarize`** - Summarize long text content
+```typescript
+{
+  text: string,          // Text to summarize (up to 50K chars)
+  maxLength?: number     // Max summary length in words (default: 300)
+}
+```
+
+**`local.clarify`** - Answer questions about text
+```typescript
+{
+  text: string,          // Context text
+  question: string       // Specific question to answer
+}
+```
+
+**`local.extract`** - Extract structured JSON from text
+```typescript
+{
+  text: string,          // Text to extract from
+  schema: string         // Desired JSON structure description
+}
+```
+
+### Features
+
+- ✅ **No Authentication**: Localhost-only endpoint, no OAuth required
+- ✅ **Dashboard Status**: View LocalFoundry availability at `https://localhost:3333/`
+- ✅ **Error Handling**: Clear messages for endpoint unreachable, timeout, invalid response
+- ✅ **Configurable Timeout**: Adjust timeout for large text processing
+- ✅ **Input Validation**: Text length limits, required field checking
+- ✅ **Type-Safe**: Full TypeScript interfaces for all requests/responses
+
+### Usage Examples
+
+**Summarize a document:**
+```bash
+# Via Claude Code
+> Summarize this long document: [paste 5000-word text]
+# Uses local.summarize tool automatically
+```
+
+**Ask questions about code:**
+```bash
+# Via Claude Code
+> What does the timeout parameter control in this config?
+# [paste config file]
+# Uses local.clarify tool
+```
+
+**Extract structured data:**
+```bash
+# Via Claude Code
+> Extract attendees, decisions, and action items from this meeting note: [paste note]
+# Uses local.extract tool, returns JSON
+```
+
+### Dashboard Status
+
+Visit `https://localhost:3333/` to see LocalFoundry status card showing:
+- ✓ **Available**: Endpoint responding correctly
+- ○ **Unavailable**: Endpoint configured but not reachable
+- ○ **Not Configured**: LOCALFOUNDRY_ENDPOINT not set
+
+Status card displays endpoint URL and model name (no authentication button needed).
+
+📚 **Detailed guide**: [specs/011-localfoundry-integration/quickstart.md](specs/011-localfoundry-integration/quickstart.md)
+
 ## Contributing
 
 This project follows:
 - **SpecKit methodology** - Feature specs in `specs/` directory
 - **Test-Driven Development** - Tests before implementation
 - **Skyscanner Production Standards** - See [constitution](.specify/memory/constitution.md)
+
+## Completed Features
+
+- **001**: Project Foundation - TypeScript, dual-port architecture, base classes
+- **002-006**: Microsoft 365 Integration - Email, calendar, OAuth, token management
+- **007-008**: Slack Integration - Channels, messages, canvas, reminders, OAuth
+- **009**: SSE Transport - Modern streamable HTTP for MCP protocol
+- **010**: Slack Message Actions - Socket Mode for message shortcuts and workflows
+- **011**: LocalFoundry Integration - Local LLM text processing (summarize, clarify, extract)
 
 ## License
 

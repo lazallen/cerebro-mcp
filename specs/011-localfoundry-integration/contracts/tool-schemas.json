@@ -1,0 +1,92 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "LocalFoundry MCP Tool Schemas",
+  "description": "Input schemas for LocalFoundry MCP tools exposed through Cerebro MCP",
+  "definitions": {
+    "summarize": {
+      "title": "Summarize Tool Input",
+      "description": "Summarize text content concisely",
+      "type": "object",
+      "required": ["text"],
+      "properties": {
+        "text": {
+          "type": "string",
+          "description": "Text content to summarize (document, code file, or any text)",
+          "minLength": 1,
+          "maxLength": 50000
+        },
+        "maxLength": {
+          "type": "number",
+          "description": "Maximum summary length in words (default: 300)",
+          "minimum": 50,
+          "maximum": 1000,
+          "default": 300
+        }
+      },
+      "examples": [
+        {
+          "text": "Long document content to be summarized...",
+          "maxLength": 200
+        }
+      ]
+    },
+    "clarify": {
+      "title": "Clarify Tool Input",
+      "description": "Answer questions about provided text content",
+      "type": "object",
+      "required": ["text", "question"],
+      "properties": {
+        "text": {
+          "type": "string",
+          "description": "Context text to answer questions about (documentation, code comments, reference material)",
+          "minLength": 1,
+          "maxLength": 50000
+        },
+        "question": {
+          "type": "string",
+          "description": "Specific question to answer based on the text",
+          "minLength": 1,
+          "maxLength": 500
+        }
+      },
+      "examples": [
+        {
+          "text": "Technical documentation content...",
+          "question": "What does the timeout parameter control?"
+        }
+      ]
+    },
+    "extract": {
+      "title": "Extract Tool Input",
+      "description": "Extract structured data from text as JSON",
+      "type": "object",
+      "required": ["text", "schema"],
+      "properties": {
+        "text": {
+          "type": "string",
+          "description": "Text to extract structured data from (meeting notes, log files, unstructured documents)",
+          "minLength": 1,
+          "maxLength": 50000
+        },
+        "schema": {
+          "type": "string",
+          "description": "Description of desired JSON structure (can be natural language or JSON schema format)",
+          "minLength": 1,
+          "maxLength": 2000,
+          "examples": [
+            "{attendees: string[], action_items: string[], decisions: string[]}",
+            "{errors: {timestamp: string, message: string}[]}",
+            "Extract person names, companies, and dates as JSON"
+          ]
+        }
+      },
+      "examples": [
+        {
+          "text": "Meeting notes: John and Sarah discussed the new API. They decided to use REST. Action items: John will draft the spec by Friday.",
+          "schema": "{attendees: string[], decisions: string[], action_items: string[]}"
+        }
+      ]
+    }
+  },
+  "description_full": "These schemas define the input validation for LocalFoundry MCP tools. All tools are namespaced with 'local.' prefix (e.g., 'local.summarize'). Tools leverage LocalFoundry's local LLM for text processing without requiring cloud services or authentication."
+}

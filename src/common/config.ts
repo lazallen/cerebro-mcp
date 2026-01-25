@@ -6,6 +6,7 @@
 
 import * as dotenv from 'dotenv';
 import { logger } from './logger';
+import type { LocalFoundryConfig } from '../services/localfoundry/types';
 
 // Load environment variables from .env file
 dotenv.config();
@@ -128,3 +129,39 @@ export function loadGlobalConfig(): GlobalConfig {
  * Global configuration instance
  */
 export const globalConfig = loadGlobalConfig();
+
+/**
+ * Load LocalFoundry configuration from environment variables
+ * @returns LocalFoundry configuration if endpoint is configured, null otherwise
+ */
+export function loadLocalFoundryConfig(): LocalFoundryConfig | null {
+  const endpoint = process.env['LOCALFOUNDRY_ENDPOINT'];
+
+  if (!endpoint) {
+    logger.info(
+      { operation: 'localfoundry_config_not_found' },
+      'LocalFoundry not configured - LOCALFOUNDRY_ENDPOINT not set. Skipping service registration.'
+    );
+    return null;
+  }
+
+  const config: LocalFoundryConfig = {
+    endpoint,
+    model: process.env['LOCALFOUNDRY_MODEL'] ?? 'phi-4',
+    timeout: getEnvInt('LOCALFOUNDRY_TIMEOUT', 60000),
+  };
+
+  logger.info(
+    {
+      operation: 'localfoundry_config_loaded',
+      config: {
+        endpoint: config.endpoint,
+        model: config.model,
+        timeout: config.timeout,
+      },
+    },
+    'LocalFoundry configuration loaded'
+  );
+
+  return config;
+}

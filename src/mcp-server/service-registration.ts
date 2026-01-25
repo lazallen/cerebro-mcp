@@ -9,7 +9,9 @@ import { ServiceRegistry } from '../common/service-registry';
 import { logger } from '../common';
 import { MicrosoftService } from '../services/microsoft';
 import { SlackService } from '../services/slack';
+import { LocalFoundryService } from '../services/localfoundry';
 import { ServiceConfig } from '../types/service';
+import { loadLocalFoundryConfig } from '../common/config';
 
 /**
  * Check if Microsoft 365 credentials are configured
@@ -141,6 +143,44 @@ export async function registerServices(registry: ServiceRegistry): Promise<void>
       msg: 'Slack service not registered - missing credentials',
       requiredVars: ['SLACK_CLIENT_ID', 'SLACK_CLIENT_SECRET'],
     });
+  }
+
+  // LocalFoundry
+  const localFoundryConfig = loadLocalFoundryConfig();
+  if (localFoundryConfig) {
+    try {
+      const serviceConfig: ServiceConfig = {
+        name: 'local',
+        displayName: 'LocalFoundry',
+        apiEndpoint: localFoundryConfig.endpoint,
+        oauth: {
+          clientId: '', // No OAuth required
+          clientSecret: '',
+          redirectUri: '',
+          scopes: [],
+          authEndpoint: '',
+          tokenEndpoint: '',
+        },
+        tokenStorePath: './.tokens/localfoundry-tokens.json', // Dummy path (not used)
+      };
+
+      const localFoundryService = new LocalFoundryService(serviceConfig, localFoundryConfig);
+      await registry.register(localFoundryService);
+      registeredCount++;
+
+      logger.info({
+        service: 'localfoundry',
+        endpoint: localFoundryConfig.endpoint,
+        model: localFoundryConfig.model,
+        msg: 'LocalFoundry service registered successfully',
+      });
+    } catch (error) {
+      logger.error({
+        service: 'localfoundry',
+        error: error instanceof Error ? error.message : String(error),
+        msg: 'Failed to register LocalFoundry service',
+      });
+    }
   }
 
   // Log summary
