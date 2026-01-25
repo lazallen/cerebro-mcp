@@ -70,7 +70,7 @@ describe('MCPServer HTTP Transport', () => {
         },
       ]),
       shutdownAll: jest.fn().mockResolvedValue(undefined),
-      services: new Map([['test-service', mockService as Service]]),
+      services: new Map([['test-service', mockService]]),
     } as unknown as ServiceRegistry;
 
     mcpServer = new MCPServer(mockRegistry);
