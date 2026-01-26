@@ -316,6 +316,8 @@ describe('MicrosoftService', () => {
         const result = await listEvents?.handler({});
         expect(result).toHaveProperty('events');
         expect(result).toHaveProperty('count');
+        expect(result).toHaveProperty('totalRetrieved');
+        expect(result).toHaveProperty('hasMore');
         expect(result).toHaveProperty('startDate');
         expect(result).toHaveProperty('endDate');
         expect((result as { events: unknown[] }).events).toBeInstanceOf(Array);
@@ -343,6 +345,17 @@ describe('MicrosoftService', () => {
 
         const result = await listEvents?.handler({ count: 200 });
         expect((result as { count: number }).count).toBeLessThanOrEqual(100);
+      });
+
+      it('should include pagination metadata', async () => {
+        const tools = service.getTools();
+        const listEvents = tools.find((t) => t.name === 'list-events');
+
+        const result = await listEvents?.handler({});
+        expect(result).toHaveProperty('hasMore');
+        expect(result).toHaveProperty('totalRetrieved');
+        expect(typeof (result as { hasMore: boolean }).hasMore).toBe('boolean');
+        expect(typeof (result as { totalRetrieved: number }).totalRetrieved).toBe('number');
       });
     });
 

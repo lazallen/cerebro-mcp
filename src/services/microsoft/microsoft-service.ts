@@ -456,32 +456,86 @@ export class MicrosoftService implements BaseService {
 
   /**
    * List calendar events within a date range
+   * Note: Uses calendarView to expand recurring events into individual instances
    */
   private async listEvents(input: Record<string, unknown>): Promise<unknown> {
     const count = Math.min((input['count'] as number | undefined) ?? 50, 100);
 
-    // Calculate date range
+    // Calculate date range - preserve timezone from input or use local time
     const startDate = input['startDate'] ? new Date(input['startDate'] as string) : new Date();
     const endDate = input['endDate']
       ? new Date(input['endDate'] as string)
       : new Date(startDate.getTime() + 7 * 24 * 60 * 60 * 1000); // 7 days from start
 
-    const response = await this.apiClient.request('/me/calendar/events', {
-      method: 'GET',
-      params: {
-        $top: count.toString(),
-        $select: 'id,subject,start,end,location,organizer,attendees,onlineMeeting,isAllDay,webLink',
-        $filter: `start/dateTime ge '${startDate.toISOString()}' and start/dateTime lt '${endDate.toISOString()}'`,
-        $orderby: 'start/dateTime asc',
-      },
-    });
+    // Get timezone offset to format dates correctly for calendarView
+    // calendarView requires dates in ISO format, which will be interpreted as UTC
+    // So we format with the local timezone offset preserved
+    const formatDateForCalendarView = (date: Date): string => {
+      // Get timezone offset in minutes and convert to ISO string format
+      const tzOffset = -date.getTimezoneOffset();
+      const offsetSign = tzOffset >= 0 ? '+' : '-';
+      const offsetHours = Math.floor(Math.abs(tzOffset) / 60)
+        .toString()
+        .padStart(2, '0');
+      const offsetMinutes = (Math.abs(tzOffset) % 60).toString().padStart(2, '0');
 
-    const data = response.data as { value?: unknown[] };
+      // Create ISO string with timezone offset
+      const year = date.getFullYear();
+      const month = (date.getMonth() + 1).toString().padStart(2, '0');
+      const day = date.getDate().toString().padStart(2, '0');
+      const hours = date.getHours().toString().padStart(2, '0');
+      const minutes = date.getMinutes().toString().padStart(2, '0');
+      const seconds = date.getSeconds().toString().padStart(2, '0');
+
+      return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}${offsetSign}${offsetHours}:${offsetMinutes}`;
+    };
+
+    const startDateTime = formatDateForCalendarView(startDate);
+    const endDateTime = formatDateForCalendarView(endDate);
+
+    // Use calendarView to get expanded instances of recurring events
+    const allEvents: unknown[] = [];
+    let nextLink: string | undefined = undefined;
+    let requestCount = 0;
+
+    do {
+      const response = nextLink
+        ? await this.apiClient.request(nextLink.replace('https://graph.microsoft.com/v1.0', ''), {
+            method: 'GET',
+          })
+        : await this.apiClient.request('/me/calendarView', {
+            method: 'GET',
+            params: {
+              startDateTime,
+              endDateTime,
+              $top: count.toString(),
+              $select:
+                'id,subject,start,end,location,organizer,attendees,onlineMeeting,isAllDay,webLink',
+              $orderby: 'start/dateTime asc',
+            },
+          });
+
+      const data = response.data as { value?: unknown[]; '@odata.nextLink'?: string };
+      if (data.value) {
+        allEvents.push(...data.value);
+      }
+
+      nextLink = data['@odata.nextLink'];
+      requestCount++;
+
+      // Stop if we've reached the requested count or made too many requests
+      if (allEvents.length >= count || requestCount >= 10) {
+        break;
+      }
+    } while (nextLink);
+
     return {
-      events: data.value ?? [],
-      count: (data.value ?? []).length,
-      startDate: startDate.toISOString(),
-      endDate: endDate.toISOString(),
+      events: allEvents.slice(0, count),
+      count: allEvents.slice(0, count).length,
+      totalRetrieved: allEvents.length,
+      hasMore: nextLink !== undefined,
+      startDate: startDateTime,
+      endDate: endDateTime,
     };
   }
 
