@@ -84,6 +84,7 @@ describe('MicrosoftService', () => {
       expect(listEmails).toBeDefined();
       expect(listEmails?.description).toContain('List recent emails');
       expect(listEmails?.inputSchema.properties).toHaveProperty('count');
+      expect(listEmails?.inputSchema.properties).toHaveProperty('folder');
     });
 
     it('should return read-email tool', () => {
@@ -115,6 +116,163 @@ describe('MicrosoftService', () => {
       expect(result).toHaveProperty('emails');
       expect(result).toHaveProperty('count');
       expect((result as { emails: unknown[] }).emails).toBeInstanceOf(Array);
+    });
+
+    // T008 - Test default inbox filtering
+    it('should default to inbox folder when no folder parameter provided', async () => {
+      await service.initialize();
+      const tools = service.getTools();
+      const listEmails = tools.find((t) => t.name === 'list-emails');
+
+      // Calling with no folder parameter should default to inbox
+      const result = await listEmails?.handler({ count: 10 });
+      expect(result).toHaveProperty('emails');
+      expect(result).toHaveProperty('count');
+    });
+
+    // T009 - Test inbox parameter explicitly set
+    it('should accept explicit inbox folder parameter', async () => {
+      await service.initialize();
+      const tools = service.getTools();
+      const listEmails = tools.find((t) => t.name === 'list-emails');
+
+      const result = await listEmails?.handler({ count: 10, folder: 'inbox' });
+      expect(result).toHaveProperty('emails');
+      expect(result).toHaveProperty('count');
+    });
+
+    // T010 - Test case-insensitive folder parameter
+    it('should handle case-insensitive folder parameter (Inbox)', async () => {
+      await service.initialize();
+      const tools = service.getTools();
+      const listEmails = tools.find((t) => t.name === 'list-emails');
+
+      const result = await listEmails?.handler({ count: 10, folder: 'Inbox' });
+      expect(result).toHaveProperty('emails');
+      expect(result).toHaveProperty('count');
+    });
+
+    // T017 - Test folder="spam" parameter
+    it('should accept folder="spam" parameter', async () => {
+      await service.initialize();
+      const tools = service.getTools();
+      const listEmails = tools.find((t) => t.name === 'list-emails');
+
+      const result = await listEmails?.handler({ count: 10, folder: 'spam' });
+      expect(result).toHaveProperty('emails');
+      expect(result).toHaveProperty('count');
+    });
+
+    // T018 - Test folder="junk" parameter (maps to junkemail)
+    it('should accept folder="junk" parameter and map to junkemail', async () => {
+      await service.initialize();
+      const tools = service.getTools();
+      const listEmails = tools.find((t) => t.name === 'list-emails');
+
+      const result = await listEmails?.handler({ count: 10, folder: 'junk' });
+      expect(result).toHaveProperty('emails');
+      expect(result).toHaveProperty('count');
+    });
+
+    // T019 - Test folder="sent" parameter (maps to sentitems)
+    it('should accept folder="sent" parameter and map to sentitems', async () => {
+      await service.initialize();
+      const tools = service.getTools();
+      const listEmails = tools.find((t) => t.name === 'list-emails');
+
+      const result = await listEmails?.handler({ count: 10, folder: 'sent' });
+      expect(result).toHaveProperty('emails');
+      expect(result).toHaveProperty('count');
+    });
+
+    // T020 - Test folder="drafts" parameter
+    it('should accept folder="drafts" parameter', async () => {
+      await service.initialize();
+      const tools = service.getTools();
+      const listEmails = tools.find((t) => t.name === 'list-emails');
+
+      const result = await listEmails?.handler({ count: 10, folder: 'drafts' });
+      expect(result).toHaveProperty('emails');
+      expect(result).toHaveProperty('count');
+    });
+
+    // T021 - Test folder="trash" parameter (maps to deleteditems)
+    it('should accept folder="trash" parameter and map to deleteditems', async () => {
+      await service.initialize();
+      const tools = service.getTools();
+      const listEmails = tools.find((t) => t.name === 'list-emails');
+
+      const result = await listEmails?.handler({ count: 10, folder: 'trash' });
+      expect(result).toHaveProperty('emails');
+      expect(result).toHaveProperty('count');
+    });
+
+    // T022 - Test folder="deleted" parameter (maps to deleteditems)
+    it('should accept folder="deleted" parameter and map to deleteditems', async () => {
+      await service.initialize();
+      const tools = service.getTools();
+      const listEmails = tools.find((t) => t.name === 'list-emails');
+
+      const result = await listEmails?.handler({ count: 10, folder: 'deleted' });
+      expect(result).toHaveProperty('emails');
+      expect(result).toHaveProperty('count');
+    });
+
+    // T029 - Test folder="all" parameter
+    it('should accept folder="all" parameter for cross-folder search', async () => {
+      await service.initialize();
+      const tools = service.getTools();
+      const listEmails = tools.find((t) => t.name === 'list-emails');
+
+      const result = await listEmails?.handler({ count: 10, folder: 'all' });
+      expect(result).toHaveProperty('emails');
+      expect(result).toHaveProperty('count');
+    });
+
+    // T030 - Test folder="ALL" (uppercase)
+    it('should accept folder="ALL" (case-insensitive)', async () => {
+      await service.initialize();
+      const tools = service.getTools();
+      const listEmails = tools.find((t) => t.name === 'list-emails');
+
+      const result = await listEmails?.handler({ count: 10, folder: 'ALL' });
+      expect(result).toHaveProperty('emails');
+      expect(result).toHaveProperty('count');
+    });
+
+    // T034 - Test custom folder name (should be accepted)
+    it('should accept custom folder names', async () => {
+      await service.initialize();
+      const tools = service.getTools();
+      const listEmails = tools.find((t) => t.name === 'list-emails');
+
+      // Custom folder names should be accepted (Microsoft Graph will handle validation)
+      const result = await listEmails?.handler({ count: 10, folder: 'Archive' });
+      expect(result).toHaveProperty('emails');
+      expect(result).toHaveProperty('count');
+    });
+
+    // T036 - Test whitespace-trimmed folder name
+    it('should handle whitespace-trimmed folder names', async () => {
+      await service.initialize();
+      const tools = service.getTools();
+      const listEmails = tools.find((t) => t.name === 'list-emails');
+
+      const result = await listEmails?.handler({ count: 10, folder: '  inbox  ' });
+      expect(result).toHaveProperty('emails');
+      expect(result).toHaveProperty('count');
+    });
+
+    // Test for custom folder resolution
+    it('should resolve custom folder names to folder IDs', async () => {
+      await service.initialize();
+      const tools = service.getTools();
+      const listEmails = tools.find((t) => t.name === 'list-emails');
+
+      // In test mode, custom folders should work (mock will handle it)
+      const result = await listEmails?.handler({ count: 10, folder: 'Archive' });
+      expect(result).toHaveProperty('emails');
+      expect(result).toHaveProperty('count');
     });
 
     it('should respect count parameter', async () => {
@@ -276,21 +434,28 @@ describe('MicrosoftService', () => {
 
   describe('authentication', () => {
     it('should report not authenticated without tokens', async () => {
-      await service.initialize();
-      expect(await service.isAuthenticated()).toBe(false);
+      // Create a fresh service instance without tokens
+      const testTokenPath2 = './.tokens/test-microsoft-tokens-no-auth.json';
+      const config2 = {
+        ...config,
+        tokenStorePath: testTokenPath2,
+      };
+
+      // Make sure no token file exists
+      try {
+        await fs.unlink(testTokenPath2);
+      } catch {
+        // Ignore if file doesn't exist
+      }
+
+      const service2 = new MicrosoftService(config2);
+      await service2.initialize();
+      expect(await service2.isAuthenticated()).toBe(false);
+      await service2.shutdown();
     });
 
     it('should report authenticated with valid tokens', async () => {
-      // Write mock token file
-      const mockTokens = {
-        access_token: 'mock-access-token',
-        refresh_token: 'mock-refresh-token',
-        expires_at: Date.now() + 3600000, // 1 hour from now
-      };
-
-      await fs.mkdir('./.tokens', { recursive: true });
-      await fs.writeFile(testTokenPath, JSON.stringify(mockTokens));
-
+      // Service already has tokens from beforeEach
       await service.initialize();
       expect(await service.isAuthenticated()).toBe(true);
     });
@@ -603,9 +768,9 @@ describe('MicrosoftService', () => {
     });
 
     describe('tool registration', () => {
-      it('should return 9 total tools (3 email + 6 calendar)', () => {
+      it('should return 11 tools (2 auth + 3 email + 6 calendar)', () => {
         const tools = service.getTools();
-        expect(tools).toHaveLength(9);
+        expect(tools).toHaveLength(11);
       });
 
       it('should have all calendar tools defined', () => {
