@@ -3,6 +3,7 @@
  *
  * Implements Model Context Protocol server with Streamable HTTP transport.
  * Handles tool discovery, tool execution, and error responses.
+ * Uses per-session server instances to support reconnections.
  */
 
 import * as http from 'http';
@@ -26,41 +27,29 @@ import {
  */
 export class MCPServer {
   private readonly transport: StreamableHTTPServerTransport;
-  private readonly server: Server;
   private readonly serviceRegistry: ServiceRegistry;
   private readonly timeout: number;
   private readonly logToolInput: boolean;
+  private readonly sessions: Map<string, Server>;
 
   constructor(serviceRegistry: ServiceRegistry) {
     this.serviceRegistry = serviceRegistry;
+    this.sessions = new Map();
 
     // Configuration
     this.timeout = parseInt(process.env['MCP_TIMEOUT'] ?? '30000', 10);
     this.logToolInput = process.env['MCP_LOG_TOOL_INPUT'] === 'true';
 
-    // Create Streamable HTTP transport (stateful mode with session management)
+    // Create Streamable HTTP transport with per-session server creation
     this.transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => randomUUID(),
     });
-
-    // Create MCP server
-    this.server = new Server(
-      {
-        name: globalConfig.serverName,
-        version: globalConfig.serverVersion,
-      },
-      {
-        capabilities: {
-          tools: {},
-        },
-      }
-    );
 
     logger.info({
       operation: 'mcp_server_init',
       timeout: this.timeout,
       logToolInput: this.logToolInput,
-      msg: 'MCP server initialized with Streamable HTTP transport',
+      msg: 'MCP server initialized with per-session Streamable HTTP transport',
     });
   }
 
@@ -69,11 +58,15 @@ export class MCPServer {
    */
   async start(): Promise<void> {
     try {
-      // Setup handlers
-      this.setupHandlers();
+      // Create a server instance for the transport
+      // This will be the default server, but sessions can create their own
+      const server = this.createServer();
+
+      // Setup handlers for this server
+      this.setupHandlers(server);
 
       // Connect transport
-      await this.server.connect(this.transport);
+      await server.connect(this.transport);
 
       logger.info({
         operation: 'mcp_server_started',
@@ -88,6 +81,23 @@ export class MCPServer {
       });
       throw error;
     }
+  }
+
+  /**
+   * Create a new Server instance
+   */
+  private createServer(): Server {
+    return new Server(
+      {
+        name: globalConfig.serverName,
+        version: globalConfig.serverVersion,
+      },
+      {
+        capabilities: {
+          tools: {},
+        },
+      }
+    );
   }
 
   /**
@@ -131,7 +141,10 @@ export class MCPServer {
         msg: 'Shutting down MCP server',
       });
 
-      await this.server.close();
+      // Close all active sessions
+      const closures = Array.from(this.sessions.values()).map((server) => server.close());
+      await Promise.all(closures);
+      this.sessions.clear();
 
       logger.info({
         operation: 'mcp_server_stopped',
@@ -150,10 +163,10 @@ export class MCPServer {
   /**
    * Setup MCP protocol handlers
    */
-  private setupHandlers(): void {
+  private setupHandlers(server: Server): void {
     // Tools list handler
     // eslint-disable-next-line @typescript-eslint/require-await
-    this.server.setRequestHandler(ListToolsRequestSchema, async () => {
+    server.setRequestHandler(ListToolsRequestSchema, async () => {
       const correlationId = generateCorrelationId();
 
       logger.info({
@@ -192,7 +205,7 @@ export class MCPServer {
     });
 
     // Tool call handler
-    this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const correlationId = generateCorrelationId();
       const toolName = request.params.name;
       const toolInput = request.params.arguments ?? {};

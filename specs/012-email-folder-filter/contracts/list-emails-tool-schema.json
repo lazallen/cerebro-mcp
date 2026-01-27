@@ -1,0 +1,163 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "list-emails Tool Schema",
+  "description": "MCP tool schema for listing emails with optional folder filtering",
+  "type": "object",
+  "properties": {
+    "count": {
+      "type": "number",
+      "description": "Number of emails to retrieve (default: 10, max: 50)",
+      "default": 10,
+      "minimum": 1,
+      "maximum": 50
+    },
+    "folder": {
+      "type": "string",
+      "description": "Folder to retrieve emails from. Supported values: inbox (default), spam, junk, sent, drafts, trash, deleted, all. Case-insensitive.",
+      "default": "inbox",
+      "enum": [
+        "inbox",
+        "spam",
+        "junk",
+        "sent",
+        "drafts",
+        "trash",
+        "deleted",
+        "all"
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "description": "List 10 most recent inbox emails (default behavior)",
+      "value": {
+        "count": 10
+      }
+    },
+    {
+      "description": "List 20 inbox emails explicitly",
+      "value": {
+        "count": 20,
+        "folder": "inbox"
+      }
+    },
+    {
+      "description": "List spam emails",
+      "value": {
+        "count": 15,
+        "folder": "spam"
+      }
+    },
+    {
+      "description": "List sent emails",
+      "value": {
+        "count": 25,
+        "folder": "sent"
+      }
+    },
+    {
+      "description": "List all emails from all folders",
+      "value": {
+        "count": 50,
+        "folder": "all"
+      }
+    }
+  ],
+  "response": {
+    "type": "object",
+    "properties": {
+      "emails": {
+        "type": "array",
+        "description": "Array of email messages from the specified folder",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "Unique email message ID"
+            },
+            "subject": {
+              "type": "string",
+              "description": "Email subject line"
+            },
+            "from": {
+              "type": "object",
+              "description": "Sender information",
+              "properties": {
+                "emailAddress": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "description": "Sender display name"
+                    },
+                    "address": {
+                      "type": "string",
+                      "description": "Sender email address"
+                    }
+                  }
+                }
+              }
+            },
+            "receivedDateTime": {
+              "type": "string",
+              "format": "date-time",
+              "description": "ISO 8601 datetime when email was received"
+            },
+            "bodyPreview": {
+              "type": "string",
+              "description": "Preview of email body content"
+            },
+            "isRead": {
+              "type": "boolean",
+              "description": "Whether email has been read"
+            }
+          },
+          "required": ["id", "subject", "from", "receivedDateTime"]
+        }
+      },
+      "count": {
+        "type": "number",
+        "description": "Number of emails returned in this response"
+      }
+    },
+    "required": ["emails", "count"]
+  },
+  "errors": [
+    {
+      "code": "INVALID_FOLDER",
+      "message": "Invalid folder: {folder}. Supported folders: inbox, spam, junk, sent, drafts, trash, deleted, all",
+      "description": "Returned when user specifies an unsupported folder name"
+    },
+    {
+      "code": "FOLDER_NOT_FOUND",
+      "message": "Folder '{folder}' not found. Supported folders: inbox, spam, junk, sent, drafts, trash, deleted, all",
+      "description": "Returned when Microsoft Graph API cannot find the specified folder"
+    },
+    {
+      "code": "ACCESS_DENIED",
+      "message": "Access denied to folder '{folder}'. Check mailbox permissions.",
+      "description": "Returned when user lacks permission to access the folder"
+    },
+    {
+      "code": "NOT_AUTHENTICATED",
+      "message": "Not authenticated. Please run authenticate tool.",
+      "description": "Returned when user has not completed OAuth authentication"
+    }
+  ],
+  "notes": {
+    "breaking_changes": "Default behavior changed from returning all folders to returning inbox only. Users needing the old behavior can specify folder='all'.",
+    "backward_compatibility": "Existing calls without folder parameter will now return inbox-only emails (improved default). To get all folders, explicitly set folder='all'.",
+    "folder_mapping": {
+      "spam": "Mapped to Microsoft Graph 'junkemail' folder",
+      "junk": "Mapped to Microsoft Graph 'junkemail' folder",
+      "sent": "Mapped to Microsoft Graph 'sentitems' folder",
+      "trash": "Mapped to Microsoft Graph 'deleteditems' folder",
+      "deleted": "Mapped to Microsoft Graph 'deleteditems' folder"
+    },
+    "case_sensitivity": "Folder names are case-insensitive. 'Inbox', 'INBOX', and 'inbox' are all valid.",
+    "pagination": "Pagination behavior ($top parameter) is preserved across all folders.",
+    "sorting": "Emails are always sorted by receivedDateTime in descending order (most recent first)."
+  }
+}

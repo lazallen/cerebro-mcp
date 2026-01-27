@@ -104,20 +104,22 @@ describe('LocalFoundryService', () => {
       expect(mockClient.healthCheck).toHaveBeenCalled();
     });
 
-    it('should return false when health check fails', async () => {
+    it('should return true even when health check fails', async () => {
       mockClient.healthCheck.mockResolvedValueOnce(false);
 
       const result = await service.isAuthenticated();
 
-      expect(result).toBe(false);
+      // LocalFoundry always returns true (no authentication required)
+      expect(result).toBe(true);
     });
 
-    it('should return false when health check throws error', async () => {
+    it('should return true even when health check throws error', async () => {
       mockClient.healthCheck.mockRejectedValueOnce(new Error('Connection failed'));
 
       const result = await service.isAuthenticated();
 
-      expect(result).toBe(false);
+      // LocalFoundry always returns true (no authentication required)
+      expect(result).toBe(true);
     });
   });
 

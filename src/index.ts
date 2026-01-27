@@ -164,14 +164,44 @@ async function shutdown(): Promise<void> {
   // Stop MCP HTTP server
   if (mcpHttpServer) {
     try {
-      await new Promise<void>((resolve) => {
-        mcpHttpServer!.close(() => {
-          logger.info({
-            operation: 'mcp_http_server_stopped',
-            msg: 'MCP HTTP server stopped',
+      // Track active connections to force close them on shutdown
+      const connections = new Set<any>();
+      mcpHttpServer.on('connection', (conn) => {
+        connections.add(conn);
+        conn.on('close', () => connections.delete(conn));
+      });
+
+      await new Promise<void>((resolve, reject) => {
+        // Set a timeout to force exit if server doesn't close
+        const shutdownTimeout = setTimeout(() => {
+          logger.warn({
+            operation: 'mcp_http_shutdown_timeout',
+            msg: 'MCP HTTP server close timeout - forcing connection closure',
           });
+          // Force close all connections
+          connections.forEach((conn) => conn.destroy());
           resolve();
+        }, 5000); // 5 second timeout
+
+        mcpHttpServer!.close((error) => {
+          clearTimeout(shutdownTimeout);
+          if (error) {
+            logger.error({
+              operation: 'mcp_http_shutdown_error',
+              error: error.message,
+            });
+            reject(error);
+          } else {
+            logger.info({
+              operation: 'mcp_http_server_stopped',
+              msg: 'MCP HTTP server stopped',
+            });
+            resolve();
+          }
         });
+
+        // Force close all active connections immediately for faster shutdown
+        connections.forEach((conn) => conn.destroy());
       });
     } catch (error) {
       logger.error({

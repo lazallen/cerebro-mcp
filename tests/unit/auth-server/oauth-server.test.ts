@@ -136,7 +136,13 @@ describe('OAuthServer', () => {
 
   afterEach(async () => {
     if (server) {
-      await server.stop();
+      try {
+        await server.stop();
+        // Small delay to ensure port is fully released
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      } catch (error) {
+        // Ignore errors during cleanup
+      }
     }
   });
 

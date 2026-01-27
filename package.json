@@ -37,7 +37,7 @@
   "author": "Stuart Davidson",
   "license": "MIT",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@modelcontextprotocol/sdk": "^1.25.3",
     "dotenv": "^16.4.1",
     "pino": "^8.19.0",
     "pino-pretty": "^10.3.1",

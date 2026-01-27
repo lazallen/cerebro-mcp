@@ -39,6 +39,33 @@ export class MicrosoftService implements BaseService {
     // Load existing tokens if available
     await this.tokenStorage.loadTokens();
 
+    // Set up mock handler for test mode
+    if (process.env['USE_TEST_MODE'] === 'true') {
+      this.apiClient.setMockHandler(async (config) => {
+        // Mock folder list endpoint
+        if (config.params && typeof config.params['$select'] === 'string' && (config.params['$select'] as string).includes('displayName')) {
+          return {
+            data: {
+              value: [
+                { id: 'inbox-guid', displayName: 'Inbox' },
+                { id: 'archive-guid', displayName: 'Archive' },
+                { id: 'junkemail-guid', displayName: 'Junk Email' },
+              ],
+            },
+            status: 200,
+            headers: {},
+          };
+        }
+
+        // Default mock response for other endpoints
+        return {
+          data: { value: [] },
+          status: 200,
+          headers: {},
+        };
+      });
+    }
+
     logger.info({
       operation: 'microsoft_service_initialized',
       service: this.name,
@@ -75,7 +102,7 @@ export class MicrosoftService implements BaseService {
       {
         name: 'list-emails',
         description:
-          'List recent emails from inbox. Returns subject, sender, date, and preview for each email.',
+          'List recent emails from a specific folder. Returns subject, sender, date, and preview for each email.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -83,6 +110,12 @@ export class MicrosoftService implements BaseService {
               type: 'number',
               description: 'Number of emails to retrieve (default: 10, max: 50)',
               default: 10,
+            },
+            folder: {
+              type: 'string',
+              description:
+                'Folder to retrieve emails from (default: inbox). Common folders: inbox, spam, junk, sent, drafts, trash, deleted. Use "all" for cross-folder search. Custom folder names are also supported.',
+              default: 'inbox',
             },
           },
         },
@@ -133,6 +166,16 @@ export class MicrosoftService implements BaseService {
           required: ['to', 'subject', 'body'],
         },
         handler: this.sendEmail.bind(this),
+      },
+      {
+        name: 'list-mail-folders',
+        description:
+          'List all available mail folders in the mailbox. Returns folder names and IDs. Useful for finding the exact folder name to use with list-emails.',
+        inputSchema: {
+          type: 'object',
+          properties: {},
+        },
+        handler: this.listMailFolders.bind(this),
       },
 
       // Calendar Tools
@@ -384,12 +427,215 @@ export class MicrosoftService implements BaseService {
   }
 
   /**
-   * List recent emails from inbox
+   * Map user-friendly folder names to Microsoft Graph well-known folder names
+   * @param folder - User-provided folder name
+   * @returns Microsoft Graph well-known folder name, null for 'all', or undefined for custom folders
+   */
+  private mapToWellKnownFolder(folder: string): string | null | undefined {
+    const folderMap: Record<string, string> = {
+      inbox: 'inbox',
+      spam: 'junkemail',
+      junk: 'junkemail',
+      sent: 'sentitems',
+      drafts: 'drafts',
+      trash: 'deleteditems',
+      deleted: 'deleteditems',
+    };
+
+    const normalized = folder.toLowerCase().trim();
+
+    // Special case: 'all' means search all folders (original behavior)
+    if (normalized === 'all') {
+      return null;
+    }
+
+    // Return well-known name if it's a standard folder, undefined otherwise
+    return folderMap[normalized];
+  }
+
+  /**
+   * Resolve custom folder name or path to folder ID by searching mailFolders
+   * Supports both single folder names and paths (e.g., "Areas/Line Management/Personal")
+   * @param folderInput - Folder name or path with "/" separators
+   * @returns Folder ID (GUID) if found and unique
+   * @throws Error if folder not found, path is invalid, or multiple folders match (for single names)
+   */
+  private async resolveFolderName(folderInput: string): Promise<string> {
+    // Check if input contains a path (has "/" separator)
+    const pathSegments = folderInput
+      .split('/')
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+
+    if (pathSegments.length === 0) {
+      throw new Error('Folder name cannot be empty');
+    }
+
+    if (pathSegments.length === 1) {
+      // Single folder name - search at root level (original behavior)
+      return this.resolveFolderNameAtRoot(pathSegments[0]!);
+    }
+
+    // Multi-segment path - traverse hierarchy
+    return this.resolveFolderPath(pathSegments);
+  }
+
+  /**
+   * Resolve a single folder name at root level
+   * @param folderName - Folder name to find at root level
+   * @returns Folder ID if found and unique
+   * @throws Error if not found or multiple matches
+   */
+  private async resolveFolderNameAtRoot(folderName: string): Promise<string> {
+    const response = await this.apiClient.request('/me/mailFolders', {
+      method: 'GET',
+      params: {
+        $select: 'id,displayName',
+        $top: '1000',
+      },
+    });
+
+    const data = response.data as {
+      value?: Array<{ id?: string; displayName?: string }>;
+    };
+    const folders = data.value ?? [];
+
+    // Case-insensitive search for matching folders
+    const matches = folders.filter(
+      (f) => f.displayName?.toLowerCase() === folderName.toLowerCase()
+    );
+
+    if (matches.length === 0) {
+      const availableFolders = folders
+        .map((f) => f.displayName)
+        .filter((n) => n)
+        .join(', ');
+      throw new Error(
+        `Folder '${folderName}' not found at root level. Available folders: ${availableFolders || 'none'}. Use list-mail-folders to see all folders.`
+      );
+    }
+
+    if (matches.length > 1) {
+      throw new Error(
+        `Multiple folders found with name '${folderName}' at root level. Please use a more specific path (e.g., "ParentFolder/${folderName}").`
+      );
+    }
+
+    const folderId = matches[0]?.id;
+    if (!folderId) {
+      throw new Error(`Folder '${folderName}' found but has no ID.`);
+    }
+
+    return folderId;
+  }
+
+  /**
+   * Resolve a folder path by traversing the hierarchy
+   * @param pathSegments - Array of folder names representing the path
+   * @returns Folder ID of the final folder in the path
+   * @throws Error if any segment is not found
+   */
+  private async resolveFolderPath(pathSegments: string[]): Promise<string> {
+    // Start with root folders
+    let currentFolders = (
+      (
+        await this.apiClient.request('/me/mailFolders', {
+          method: 'GET',
+          params: { $select: 'id,displayName', $top: '1000' },
+        })
+      ).data as { value?: Array<{ id?: string; displayName?: string }> }
+    ).value ?? [];
+
+    let currentId: string | null = null;
+
+    // Traverse each path segment
+    for (let i = 0; i < pathSegments.length; i++) {
+      const segment = pathSegments[i]!;
+      const match = currentFolders.find(
+        (f) => f.displayName?.toLowerCase() === segment.toLowerCase()
+      );
+
+      if (!match) {
+        const traversedPath = pathSegments.slice(0, i).join('/');
+        const availableFolders = currentFolders
+          .map((f) => f.displayName)
+          .filter((n) => n)
+          .join(', ');
+        const locationMsg = traversedPath ? `under '${traversedPath}'` : 'at root level';
+        throw new Error(
+          `Folder '${segment}' not found ${locationMsg}. Available folders: ${availableFolders || 'none'}.`
+        );
+      }
+
+      currentId = match.id ?? null;
+
+      // Get child folders for next iteration (unless this is the last segment)
+      if (i < pathSegments.length - 1) {
+        if (!currentId) {
+          throw new Error(`Folder '${segment}' has no ID.`);
+        }
+
+        const childResponse = await this.apiClient.request(
+          `/me/mailFolders/${currentId}/childFolders`,
+          {
+            method: 'GET',
+            params: {
+              $select: 'id,displayName',
+              $top: '1000',
+            },
+          }
+        );
+
+        const childData = childResponse.data as {
+          value?: Array<{ id?: string; displayName?: string }>;
+        };
+        currentFolders = childData.value ?? [];
+
+        if (currentFolders.length === 0) {
+          const traversedPath = pathSegments.slice(0, i + 1).join('/');
+          throw new Error(
+            `Path invalid: Folder '${segment}' (${traversedPath}) has no child folders.`
+          );
+        }
+      }
+    }
+
+    if (!currentId) {
+      throw new Error(
+        `Folder path '${pathSegments.join('/')}' could not be resolved to a valid folder ID.`
+      );
+    }
+
+    return currentId;
+  }
+
+  /**
+   * List recent emails from specified folder
+   * @param input - Tool input with optional count and folder parameters
+   * @returns Object containing emails array and count
    */
   private async listEmails(input: Record<string, unknown>): Promise<unknown> {
     const count = Math.min((input['count'] as number | undefined) ?? 10, 50);
+    const folder = (input['folder'] as string | undefined) ?? 'inbox';
 
-    const response = await this.apiClient.request('/me/messages', {
+    // Check if it's a well-known folder or special value
+    const wellKnownName = this.mapToWellKnownFolder(folder);
+
+    let endpoint: string;
+
+    if (wellKnownName === null) {
+      // Special case: 'all' means search all folders
+      endpoint = '/me/messages';
+    } else if (wellKnownName !== undefined) {
+      // Standard well-known folder (inbox, spam, etc.)
+      endpoint = `/me/mailFolders/${wellKnownName}/messages`;
+    } else {
+      // Custom folder - need to resolve name to ID
+      const folderId = await this.resolveFolderName(folder);
+      endpoint = `/me/mailFolders/${folderId}/messages`;
+    }
+
+    const response = await this.apiClient.request(endpoint, {
       method: 'GET',
       params: {
         $top: count.toString(),
@@ -411,6 +657,10 @@ export class MicrosoftService implements BaseService {
   private async readEmail(input: Record<string, unknown>): Promise<unknown> {
     const emailId = input['emailId'] as string;
 
+    if (!emailId) {
+      throw new Error('emailId parameter is required');
+    }
+
     const response = await this.apiClient.request(`/me/messages/${emailId}`, {
       method: 'GET',
       params: {
@@ -429,6 +679,16 @@ export class MicrosoftService implements BaseService {
     const subject = input['subject'] as string;
     const body = input['body'] as string;
     const bodyType = (input['bodyType'] as string | undefined) ?? 'text';
+
+    if (!to || to.length === 0) {
+      throw new Error('to parameter is required and must contain at least one recipient');
+    }
+    if (!subject) {
+      throw new Error('subject parameter is required');
+    }
+    if (!body) {
+      throw new Error('body parameter is required');
+    }
 
     const message = {
       message: {
@@ -451,6 +711,41 @@ export class MicrosoftService implements BaseService {
     return {
       success: true,
       message: `Email sent to ${to.join(', ')}`,
+    };
+  }
+
+  /**
+   * List all available mail folders in the mailbox
+   * @returns Object containing folders array with id and displayName for each folder
+   */
+  private async listMailFolders(_input: Record<string, unknown>): Promise<unknown> {
+    const response = await this.apiClient.request('/me/mailFolders', {
+      method: 'GET',
+      params: {
+        $select: 'id,displayName,totalItemCount,unreadItemCount',
+        $top: '1000',
+      },
+    });
+
+    const data = response.data as {
+      value?: Array<{
+        id?: string;
+        displayName?: string;
+        totalItemCount?: number;
+        unreadItemCount?: number;
+      }>;
+    };
+
+    const folders = (data.value ?? []).map((folder) => ({
+      id: folder.id,
+      name: folder.displayName,
+      totalItems: folder.totalItemCount ?? 0,
+      unreadItems: folder.unreadItemCount ?? 0,
+    }));
+
+    return {
+      folders,
+      count: folders.length,
     };
   }
 
@@ -545,6 +840,10 @@ export class MicrosoftService implements BaseService {
   private async getEvent(input: Record<string, unknown>): Promise<unknown> {
     const eventId = input['eventId'] as string;
 
+    if (!eventId) {
+      throw new Error('eventId parameter is required');
+    }
+
     const response = await this.apiClient.request(`/me/calendar/events/${eventId}`, {
       method: 'GET',
       params: {
@@ -571,6 +870,16 @@ export class MicrosoftService implements BaseService {
     const attendees = input['attendees'] as string[] | undefined;
     const isOnlineMeeting = (input['isOnlineMeeting'] as boolean | undefined) ?? false;
     const isAllDay = (input['isAllDay'] as boolean | undefined) ?? false;
+
+    if (!subject) {
+      throw new Error('subject parameter is required');
+    }
+    if (!startDateTime) {
+      throw new Error('startDateTime parameter is required');
+    }
+    if (!endDateTime) {
+      throw new Error('endDateTime parameter is required');
+    }
 
     const event: Record<string, unknown> = {
       subject,
@@ -632,6 +941,10 @@ export class MicrosoftService implements BaseService {
   private async updateEvent(input: Record<string, unknown>): Promise<unknown> {
     const eventId = input['eventId'] as string;
     const sendUpdate = (input['sendUpdate'] as string | undefined) ?? 'all';
+
+    if (!eventId) {
+      throw new Error('eventId parameter is required');
+    }
 
     const updateData: Record<string, unknown> = {};
 
@@ -720,6 +1033,10 @@ export class MicrosoftService implements BaseService {
     const eventId = input['eventId'] as string;
     const sendCancellation = (input['sendCancellation'] as boolean | undefined) ?? true;
 
+    if (!eventId) {
+      throw new Error('eventId parameter is required');
+    }
+
     // Get attendee list before deletion
     let notifiedAttendees: string[] = [];
     if (sendCancellation) {
@@ -756,10 +1073,17 @@ export class MicrosoftService implements BaseService {
   private async findMeetingTimes(input: Record<string, unknown>): Promise<unknown> {
     const attendees = input['attendees'] as string[];
     const optionalAttendees = (input['optionalAttendees'] as string[] | undefined) ?? [];
-    const meetingDuration = (input['meetingDuration'] as number) ?? 60;
+    const meetingDuration = input['meetingDuration'] as number | undefined;
     const maxCandidates = Math.min((input['maxCandidates'] as number | undefined) ?? 5, 10);
     const minimumAttendeePercentage =
       (input['minimumAttendeePercentage'] as number | undefined) ?? 100;
+
+    if (!attendees || attendees.length === 0) {
+      throw new Error('attendees parameter is required and must contain at least one attendee');
+    }
+    if (meetingDuration === undefined) {
+      throw new Error('meetingDuration parameter is required');
+    }
 
     // Calculate time constraint
     const now = new Date();

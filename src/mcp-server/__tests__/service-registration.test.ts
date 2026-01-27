@@ -23,6 +23,9 @@ describe('Service Registration', () => {
     delete process.env.MICROSOFT_TENANT_ID;
     delete process.env.SLACK_CLIENT_ID;
     delete process.env.SLACK_CLIENT_SECRET;
+    // Clear LocalFoundry config
+    delete process.env.LOCALFOUNDRY_ENDPOINT;
+    delete process.env.LOCALFOUNDRY_MODEL;
   });
 
   afterEach(() => {

@@ -148,8 +148,82 @@ npm run start:pretty
 
 **Microsoft 365** (11 tools):
 - **Auth**: authenticate, check-auth-status
-- **Email**: list-emails, read-email, send-email
+- **Email**: list-emails (with folder filtering), read-email, send-email
 - **Calendar**: list-events, get-event, create-event, update-event, delete-event, find-meeting-times
+
+### Microsoft 365 Email Tools
+
+**`list-mail-folders`** - List all available mail folders in your mailbox
+- No parameters required
+- Returns all folder names, IDs, and item counts
+- Use this to discover the exact folder names available in your mailbox
+- Helpful for finding the correct folder name to use with `list-emails`
+
+Example:
+```typescript
+// List all available folders
+{}
+```
+
+Returns:
+```typescript
+{
+  folders: [
+    { id: "...", name: "Inbox", totalItems: 42, unreadItems: 5 },
+    { id: "...", name: "Personal", totalItems: 128, unreadItems: 0 },
+    { id: "...", name: "Archive", totalItems: 1523, unreadItems: 0 },
+    // ... more folders
+  ],
+  count: 15
+}
+```
+
+**`list-emails`** - List recent emails from a specific folder
+- **folder** (optional, default: "inbox"): Folder to retrieve emails from
+  - Common folders: inbox, spam, junk, sent, drafts, trash, deleted
+  - Custom folder names: Any folder name in your mailbox (e.g., "Archive", "Projects")
+  - **Nested folder paths**: Use "/" to access subfolders (e.g., "Areas/Line Management/Personal")
+  - Use "all" for cross-folder search (original behavior)
+  - Case-insensitive for standard folders
+- **count** (optional, default: 10, max: 50): Number of emails to retrieve
+
+Examples:
+```typescript
+// Default: List 10 most recent inbox emails (spam automatically excluded)
+{ count: 10 }
+
+// Explicit inbox filtering
+{ count: 20, folder: "inbox" }
+
+// Check spam folder
+{ count: 15, folder: "spam" }
+
+// Review sent emails
+{ count: 25, folder: "sent" }
+
+// Access custom folders at root level
+{ count: 10, folder: "Archive" }
+{ count: 20, folder: "Projects" }
+
+// Access nested subfolders using path notation
+{ count: 10, folder: "Areas/Line Management/Personal" }
+{ count: 15, folder: "Projects/2024/Q1" }
+{ count: 20, folder: "Clients/Acme Corp/Invoices" }
+
+// Search all folders (backward compatibility)
+{ count: 50, folder: "all" }
+```
+
+**Standard Folder Mapping**:
+- `inbox` → inbox (default)
+- `spam`, `junk` → junkemail (Microsoft Graph well-known name)
+- `sent` → sentitems
+- `drafts` → drafts
+- `trash`, `deleted` → deleteditems
+- Custom folder names → resolved via folder hierarchy traversal
+- Nested paths → resolved by traversing parent/child relationships
+
+**Note**: If a folder path doesn't exist, you'll get a helpful error message showing available folders at each level. Use `list-mail-folders` to discover the exact folder structure in your mailbox.
 
 **Slack** (16 tools):
 - **Auth**: authenticate, check-auth-status

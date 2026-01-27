@@ -156,12 +156,31 @@ describe('SlackService', () => {
 
     describe('check-auth-status tool', () => {
       it('should return false when not authenticated', async () => {
-        const tools = service.getTools();
+        // Create a fresh service instance without tokens
+        const testTokenPath2 = './.tokens/test-slack-tokens-no-auth.json';
+        const config2 = {
+          ...mockConfig,
+          tokenStorePath: testTokenPath2,
+        };
+
+        // Make sure no token file exists
+        try {
+          await fs.unlink(testTokenPath2);
+        } catch {
+          // Ignore if file doesn't exist
+        }
+
+        const service2 = new SlackService(config2);
+        await service2.initialize();
+
+        const tools = service2.getTools();
         const checkAuth = tools.find((t) => t.name === 'check-auth-status');
 
         const result = await checkAuth?.handler({});
         expect(result).toHaveProperty('authenticated');
         expect((result as { authenticated: boolean }).authenticated).toBe(false);
+
+        await service2.shutdown();
       });
     });
   });
@@ -490,6 +509,12 @@ describe('SlackService', () => {
 
   describe('message action tools', () => {
     beforeEach(async () => {
+      // Clean up message actions storage before each test
+      try {
+        await fs.unlink('./.tasks/slack-actions.json');
+      } catch {
+        // Ignore if file doesn't exist
+      }
       await service.initialize();
     });
 

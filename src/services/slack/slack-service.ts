@@ -548,6 +548,11 @@ export class SlackService implements BaseService {
    */
   private async getChannelHistory(input: Record<string, unknown>): Promise<unknown> {
     const channelId = input['channelId'] as string;
+
+    if (!channelId || channelId.trim() === '') {
+      throw new Error('channelId parameter is required');
+    }
+
     const limit = Math.min((input['limit'] as number | undefined) ?? 50, 200);
     const cursor = input['cursor'] as string | undefined;
     const oldest = input['oldest'] as string | undefined;
@@ -620,6 +625,11 @@ export class SlackService implements BaseService {
    */
   private async getGroupHistory(input: Record<string, unknown>): Promise<unknown> {
     const groupId = input['groupId'] as string;
+
+    if (!groupId || groupId.trim() === '') {
+      throw new Error('groupId parameter is required');
+    }
+
     const limit = Math.min((input['limit'] as number | undefined) ?? 50, 200);
     const cursor = input['cursor'] as string | undefined;
     const oldest = input['oldest'] as string | undefined;
@@ -659,6 +669,15 @@ export class SlackService implements BaseService {
   private async getThreadReplies(input: Record<string, unknown>): Promise<unknown> {
     const channelId = input['channelId'] as string;
     const threadTs = input['threadTs'] as string;
+
+    if (!channelId || channelId.trim() === '') {
+      throw new Error('channelId parameter is required');
+    }
+
+    if (!threadTs || threadTs.trim() === '') {
+      throw new Error('threadTs parameter is required');
+    }
+
     const limit = Math.min((input['limit'] as number | undefined) ?? 50, 200);
     const cursor = input['cursor'] as string | undefined;
 
@@ -697,6 +716,10 @@ export class SlackService implements BaseService {
   private async readCanvas(input: Record<string, unknown>): Promise<unknown> {
     const canvasId = input['canvasId'] as string;
 
+    if (!canvasId || canvasId.trim() === '') {
+      throw new Error('canvasId parameter is required');
+    }
+
     const response = await this.apiClient.request('/canvases.edit', {
       method: 'POST',
       body: {
@@ -721,6 +744,11 @@ export class SlackService implements BaseService {
    */
   private async searchCanvases(input: Record<string, unknown>): Promise<unknown> {
     const channelId = input['channelId'] as string;
+
+    if (!channelId || channelId.trim() === '') {
+      throw new Error('channelId parameter is required');
+    }
+
     const limit = Math.min((input['limit'] as number | undefined) ?? 20, 100);
 
     const response = await this.apiClient.request('/search.messages', {
@@ -804,6 +832,14 @@ export class SlackService implements BaseService {
     const text = input['text'] as string;
     const time = input['time'] as string;
 
+    if (!text || text.trim() === '') {
+      throw new Error('text parameter is required');
+    }
+
+    if (!time || time.trim() === '') {
+      throw new Error('time parameter is required');
+    }
+
     const response = await this.apiClient.request('/reminders.add', {
       method: 'POST',
       body: {
@@ -827,6 +863,10 @@ export class SlackService implements BaseService {
    */
   private async completeReminder(input: Record<string, unknown>): Promise<unknown> {
     const reminderId = input['reminderId'] as string;
+
+    if (!reminderId || reminderId.trim() === '') {
+      throw new Error('reminderId parameter is required');
+    }
 
     await this.apiClient.request('/reminders.complete', {
       method: 'POST',
