@@ -1,0 +1,471 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "OneNote Meeting Notes MCP Tool Contracts",
+  "description": "JSON Schema definitions for OneNote meeting notes management tools",
+  "definitions": {
+    "Meeting": {
+      "type": "object",
+      "description": "A scheduled meeting with preparation notes",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "Meeting name or subject (1-50 characters, no special chars)",
+          "minLength": 1,
+          "maxLength": 50,
+          "pattern": "^[^?*/:;<>|&#'"%~]+$"
+        },
+        "date": {
+          "type": "string",
+          "description": "Meeting date in YYYY-MM-DD format",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "time": {
+          "type": "string",
+          "description": "Optional meeting start time in ISO 8601 format for ordering",
+          "format": "date-time"
+        },
+        "preBriefNotes": {
+          "type": "string",
+          "description": "Preparation notes in markdown format"
+        }
+      },
+      "required": ["title", "date"],
+      "additionalProperties": false
+    }
+  },
+  "tools": {
+    "microsoft.onenote-create-section": {
+      "name": "microsoft.onenote-create-section",
+      "description": "Create or reuse a OneNote section and populate with meeting pages. Skips duplicate pages if section already exists.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "sectionName": {
+            "type": "string",
+            "description": "Section display name (format: YYYY-MM-DD descriptor, e.g., '2026-01-28 Meetings')",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}",
+            "maxLength": 50
+          },
+          "meetings": {
+            "type": "array",
+            "description": "Array of meetings to create pages for",
+            "items": {
+              "$ref": "#/definitions/Meeting"
+            },
+            "minItems": 1
+          }
+        },
+        "required": ["sectionName", "meetings"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "sectionId": {
+            "type": "string",
+            "description": "OneNote section GUID"
+          },
+          "sectionName": {
+            "type": "string",
+            "description": "Section display name"
+          },
+          "createdPages": {
+            "type": "array",
+            "description": "Successfully created pages",
+            "items": {
+              "type": "object",
+              "properties": {
+                "pageId": {
+                  "type": "string",
+                  "description": "OneNote page GUID"
+                },
+                "title": {
+                  "type": "string",
+                  "description": "Page title (meeting title)"
+                },
+                "webUrl": {
+                  "type": "string",
+                  "description": "Browser URL for viewing page"
+                },
+                "createdDateTime": {
+                  "type": "string",
+                  "format": "date-time",
+                  "description": "Creation timestamp"
+                }
+              },
+              "required": ["pageId", "title", "createdDateTime"]
+            }
+          },
+          "skippedPages": {
+            "type": "array",
+            "description": "Pages that were skipped (duplicates)",
+            "items": {
+              "type": "object",
+              "properties": {
+                "title": {
+                  "type": "string",
+                  "description": "Meeting title"
+                },
+                "reason": {
+                  "type": "string",
+                  "description": "Why page was skipped"
+                }
+              },
+              "required": ["title", "reason"]
+            }
+          },
+          "totalMeetings": {
+            "type": "integer",
+            "description": "Total meetings requested"
+          },
+          "totalCreated": {
+            "type": "integer",
+            "description": "Number of pages created"
+          },
+          "totalSkipped": {
+            "type": "integer",
+            "description": "Number of pages skipped"
+          }
+        },
+        "required": [
+          "sectionId",
+          "sectionName",
+          "createdPages",
+          "skippedPages",
+          "totalMeetings",
+          "totalCreated",
+          "totalSkipped"
+        ]
+      }
+    },
+    "microsoft.onenote-update-page": {
+      "name": "microsoft.onenote-update-page",
+      "description": "Update the content of an existing OneNote page identified by section name and meeting title.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "sectionName": {
+            "type": "string",
+            "description": "Section display name containing the page",
+            "maxLength": 50
+          },
+          "meetingTitle": {
+            "type": "string",
+            "description": "Meeting title (page title) to update",
+            "maxLength": 50
+          },
+          "content": {
+            "type": "string",
+            "description": "New page content in markdown format"
+          }
+        },
+        "required": ["sectionName", "meetingTitle", "content"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "pageId": {
+            "type": "string",
+            "description": "OneNote page GUID"
+          },
+          "title": {
+            "type": "string",
+            "description": "Page title"
+          },
+          "updated": {
+            "type": "boolean",
+            "description": "Whether update was successful"
+          },
+          "lastModifiedDateTime": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Last modification timestamp"
+          },
+          "webUrl": {
+            "type": "string",
+            "description": "Browser URL for viewing page"
+          }
+        },
+        "required": ["pageId", "title", "updated", "lastModifiedDateTime"]
+      }
+    },
+    "microsoft.onenote-delete-section": {
+      "name": "microsoft.onenote-delete-section",
+      "description": "Delete a OneNote section and all its pages. Use for cleanup of old meeting sections.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "sectionName": {
+            "type": "string",
+            "description": "Section display name to delete",
+            "maxLength": 50
+          }
+        },
+        "required": ["sectionName"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "sectionId": {
+            "type": "string",
+            "description": "OneNote section GUID that was deleted"
+          },
+          "sectionName": {
+            "type": "string",
+            "description": "Section display name that was deleted"
+          },
+          "deleted": {
+            "type": "boolean",
+            "description": "Whether deletion was successful"
+          },
+          "pageCount": {
+            "type": "integer",
+            "description": "Number of pages that were deleted with the section"
+          }
+        },
+        "required": ["sectionId", "sectionName", "deleted"]
+      }
+    },
+    "microsoft.onenote-list-sections": {
+      "name": "microsoft.onenote-list-sections",
+      "description": "List all sections in the default OneNote notebook. Utility tool for discovering section names.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "includePageCount": {
+            "type": "boolean",
+            "description": "Whether to include page count for each section (slower)",
+            "default": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "sections": {
+            "type": "array",
+            "description": "List of sections in default notebook",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "Section GUID"
+                },
+                "displayName": {
+                  "type": "string",
+                  "description": "Section name"
+                },
+                "createdDateTime": {
+                  "type": "string",
+                  "format": "date-time",
+                  "description": "Creation timestamp"
+                },
+                "lastModifiedDateTime": {
+                  "type": "string",
+                  "format": "date-time",
+                  "description": "Last modification timestamp"
+                },
+                "pageCount": {
+                  "type": "integer",
+                  "description": "Number of pages (only if includePageCount=true)"
+                }
+              },
+              "required": ["id", "displayName", "createdDateTime"]
+            }
+          },
+          "totalSections": {
+            "type": "integer",
+            "description": "Total number of sections"
+          }
+        },
+        "required": ["sections", "totalSections"]
+      }
+    },
+    "microsoft.onenote-find-page": {
+      "name": "microsoft.onenote-find-page",
+      "description": "Find a specific page by section name and meeting title. Returns page metadata and content.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "sectionName": {
+            "type": "string",
+            "description": "Section display name containing the page",
+            "maxLength": 50
+          },
+          "meetingTitle": {
+            "type": "string",
+            "description": "Meeting title (page title) to find",
+            "maxLength": 50
+          },
+          "includeContent": {
+            "type": "boolean",
+            "description": "Whether to include page HTML content (slower)",
+            "default": false
+          }
+        },
+        "required": ["sectionName", "meetingTitle"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "found": {
+            "type": "boolean",
+            "description": "Whether page was found"
+          },
+          "page": {
+            "type": "object",
+            "description": "Page metadata and content (if found)",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Page GUID"
+              },
+              "title": {
+                "type": "string",
+                "description": "Page title"
+              },
+              "createdDateTime": {
+                "type": "string",
+                "format": "date-time",
+                "description": "Creation timestamp"
+              },
+              "lastModifiedDateTime": {
+                "type": "string",
+                "format": "date-time",
+                "description": "Last modification timestamp"
+              },
+              "webUrl": {
+                "type": "string",
+                "description": "Browser URL for viewing page"
+              },
+              "htmlContent": {
+                "type": "string",
+                "description": "Page HTML content (only if includeContent=true)"
+              },
+              "markdownContent": {
+                "type": "string",
+                "description": "Page content converted to markdown (only if includeContent=true)"
+              }
+            },
+            "required": ["id", "title", "createdDateTime", "lastModifiedDateTime"]
+          }
+        },
+        "required": ["found"]
+      }
+    },
+    "microsoft.onenote-get-ink-text": {
+      "name": "microsoft.onenote-get-ink-text",
+      "description": "Convert handwritten ink strokes on a OneNote page to text using OCR. Extracts InkML data, renders to PNG, and processes with Tesseract.js (primary) or LocalFoundry vision model (fallback).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "sectionName": {
+            "type": "string",
+            "description": "Section display name containing the page",
+            "maxLength": 50
+          },
+          "meetingTitle": {
+            "type": "string",
+            "description": "Meeting title (page title) to process",
+            "maxLength": 50
+          },
+          "language": {
+            "type": "string",
+            "description": "OCR language code (ISO 639-1, e.g., 'eng', 'fra', 'deu')",
+            "default": "eng",
+            "pattern": "^[a-z]{3}$"
+          },
+          "useLocalFoundry": {
+            "type": "boolean",
+            "description": "Force use of LocalFoundry vision model instead of Tesseract.js (requires LocalFoundry service)",
+            "default": false
+          },
+          "savePng": {
+            "type": "boolean",
+            "description": "Save rendered PNG to disk for debugging (path: ./debug/ink-{pageId}.png)",
+            "default": false
+          },
+          "dpi": {
+            "type": "integer",
+            "description": "Rendering DPI for OCR (higher = better quality, more memory)",
+            "default": 150,
+            "minimum": 96,
+            "maximum": 300
+          }
+        },
+        "required": ["sectionName", "meetingTitle"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "pageId": {
+            "type": "string",
+            "description": "OneNote page GUID"
+          },
+          "title": {
+            "type": "string",
+            "description": "Page title"
+          },
+          "hasInk": {
+            "type": "boolean",
+            "description": "Whether page contains ink strokes"
+          },
+          "recognizedText": {
+            "type": "string",
+            "description": "OCR-recognized text in markdown format (empty if no ink)"
+          },
+          "ocrMethod": {
+            "type": "string",
+            "enum": ["tesseract", "localfoundry", "none"],
+            "description": "OCR method used for recognition"
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "OCR confidence score (0-1, only for Tesseract)"
+          },
+          "processingTime": {
+            "type": "integer",
+            "description": "Total processing time in milliseconds"
+          },
+          "strokeCount": {
+            "type": "integer",
+            "description": "Number of ink strokes processed"
+          },
+          "imageDimensions": {
+            "type": "object",
+            "description": "Rendered image dimensions in pixels",
+            "properties": {
+              "width": {
+                "type": "integer"
+              },
+              "height": {
+                "type": "integer"
+              }
+            },
+            "required": ["width", "height"]
+          },
+          "debugPngPath": {
+            "type": "string",
+            "description": "Path to saved PNG (only if savePng=true)"
+          }
+        },
+        "required": [
+          "pageId",
+          "title",
+          "hasInk",
+          "recognizedText",
+          "ocrMethod",
+          "processingTime"
+        ]
+      }
+    }
+  }
+}

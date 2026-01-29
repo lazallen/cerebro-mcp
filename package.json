@@ -38,9 +38,13 @@
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.25.3",
+    "canvas": "^3.2.1",
     "dotenv": "^16.4.1",
+    "fast-xml-parser": "^5.3.3",
+    "marked": "^17.0.1",
     "pino": "^8.19.0",
     "pino-pretty": "^10.3.1",
+    "tesseract.js": "^7.0.0",
     "tslib": "^2.8.1",
     "ws": "^8.19.0"
   },

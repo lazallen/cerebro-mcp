@@ -8,6 +8,7 @@ import * as http from 'http';
 import { logger, globalConfig, ServiceRegistry } from './common';
 import { OAuthServer } from './auth-server';
 import { MCPServer } from './mcp-server';
+import { HealthCheckHandler } from './mcp-server/health-check';
 import { registerServices } from './mcp-server/service-registration';
 import type { BaseService } from './types/service';
 import type { BaseTokenStorage } from './common/base-token-storage';
@@ -15,6 +16,7 @@ import type { BaseTokenStorage } from './common/base-token-storage';
 let oauthServer: OAuthServer | undefined;
 let mcpServer: MCPServer | undefined;
 let mcpHttpServer: http.Server | undefined;
+let healthCheckHandler: HealthCheckHandler | undefined;
 const serviceRegistry = new ServiceRegistry();
 
 async function main(): Promise<void> {
@@ -35,7 +37,14 @@ async function main(): Promise<void> {
     mcpServer = new MCPServer(serviceRegistry);
     await mcpServer.start();
 
-    // 3. Start OAuth authentication server (unified HTTP server on port 3333)
+    // 3. Create health check handler
+    healthCheckHandler = new HealthCheckHandler(
+      serviceRegistry,
+      globalConfig.serverName,
+      globalConfig.serverVersion
+    );
+
+    // 4. Start OAuth authentication server (unified HTTP server on port 3333)
     oauthServer = new OAuthServer();
 
     // Register MCP server with OAuth server for unified routing
@@ -71,9 +80,18 @@ async function main(): Promise<void> {
     });
     await oauthServer.start();
 
-    // 4. Start standalone MCP HTTP server on separate port
+    // 5. Start standalone MCP HTTP server on separate port with health checks
     mcpHttpServer = http.createServer(async (req, res) => {
       try {
+        const urlPath = req.url || '/';
+
+        // Handle health check requests
+        if (healthCheckHandler && HealthCheckHandler.isHealthCheckRequest(urlPath)) {
+          await healthCheckHandler.handleHealthCheck(req, res);
+          return;
+        }
+
+        // Handle MCP requests
         if (!mcpServer) {
           logger.error({ operation: 'mcp_http_request_error', msg: 'MCP server not initialized' });
           res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -96,14 +114,31 @@ async function main(): Promise<void> {
       }
     });
 
-    // Start listening on MCP port
+    // Configure server keep-alive settings for better connection stability
+    mcpHttpServer.keepAliveTimeout = 65000; // 65 seconds
+    mcpHttpServer.headersTimeout = 66000; // 66 seconds (slightly higher than keepAlive)
+
+    // Start listening on MCP port with connection tracking
     await new Promise<void>((resolve, reject) => {
+      // Track active connections for better management
+      const connections = new Set<any>();
+
+      mcpHttpServer!.on('connection', (socket) => {
+        connections.add(socket);
+        socket.on('close', () => connections.delete(socket));
+
+        // Set keep-alive on individual connections
+        socket.setKeepAlive(true, 60000);
+        socket.setTimeout(120000); // 2 minute socket timeout
+      });
+
       mcpHttpServer!.listen(globalConfig.mcpServerPort, 'localhost', () => {
         logger.info({
           operation: 'mcp_http_server_started',
           port: globalConfig.mcpServerPort,
           protocol: 'http',
           endpoint: `http://localhost:${globalConfig.mcpServerPort}/mcp`,
+          healthEndpoint: `http://localhost:${globalConfig.mcpServerPort}/health`,
           msg: `MCP HTTP server listening on http://localhost:${globalConfig.mcpServerPort}`,
         });
         resolve();
@@ -117,6 +152,22 @@ async function main(): Promise<void> {
           msg: 'MCP HTTP server error',
         });
         reject(error);
+      });
+
+      // Log connection events for debugging
+      mcpHttpServer!.on('listening', () => {
+        logger.info({
+          operation: 'mcp_http_server_listening',
+          port: globalConfig.mcpServerPort,
+          msg: 'MCP HTTP server is now listening',
+        });
+      });
+
+      mcpHttpServer!.on('close', () => {
+        logger.info({
+          operation: 'mcp_http_server_closed',
+          msg: 'MCP HTTP server closed',
+        });
       });
     });
 
