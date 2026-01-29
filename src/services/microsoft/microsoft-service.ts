@@ -9,6 +9,10 @@ import { Tool } from '../../types/tool';
 import { logger } from '../../common';
 import { MicrosoftTokenStorage } from './token-storage';
 import { MicrosoftApiClient } from './api-client';
+import { OneNoteClient } from './onenote-client';
+import { createSectionWithPages as createSectionHandler, updatePage as updatePageHandler, getInkText as getInkTextHandler } from '../../mcp-server/handlers/onenote-tools';
+import type { SectionInput, PageUpdateInput } from '../../types/onenote';
+import type { InkToTextInput } from '../../types/inkml';
 
 export class MicrosoftService implements BaseService {
   public readonly config: ServiceConfig;
@@ -409,6 +413,118 @@ export class MicrosoftService implements BaseService {
           required: ['attendees', 'meetingDuration'],
         },
         handler: this.findMeetingTimes.bind(this),
+      },
+
+      // OneNote Tools
+      {
+        name: 'onenote-create-section',
+        description:
+          'Create or reuse a OneNote section and populate with meeting pages. Skips duplicate pages if section already exists.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            sectionName: {
+              type: 'string',
+              description:
+                'Section display name (format: YYYY-MM-DD descriptor, e.g., "2026-01-29 Meetings")',
+            },
+            meetings: {
+              type: 'array',
+              description: 'Array of meetings to create pages for',
+              items: {
+                type: 'object',
+                properties: {
+                  title: {
+                    type: 'string',
+                    description: 'Meeting name or subject (1-50 characters)',
+                  },
+                  date: {
+                    type: 'string',
+                    description: 'Meeting date in YYYY-MM-DD format',
+                  },
+                  time: {
+                    type: 'string',
+                    description: 'Optional meeting start time in ISO 8601 format for ordering',
+                  },
+                  preBriefNotes: {
+                    type: 'string',
+                    description: 'Preparation notes in markdown format',
+                  },
+                },
+                required: ['title', 'date'],
+              },
+              minItems: 1,
+            },
+          },
+          required: ['sectionName', 'meetings'],
+        },
+        handler: this.createSectionWithPages.bind(this),
+      },
+      {
+        name: 'onenote-update-page',
+        description:
+          'Update the content of an existing OneNote page identified by section name and meeting title.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            sectionName: {
+              type: 'string',
+              description: 'Section display name containing the page',
+            },
+            meetingTitle: {
+              type: 'string',
+              description: 'Meeting title (page title) to update',
+            },
+            content: {
+              type: 'string',
+              description: 'New page content in markdown format',
+            },
+          },
+          required: ['sectionName', 'meetingTitle', 'content'],
+        },
+        handler: this.updatePageContent.bind(this),
+      },
+      {
+        name: 'onenote-get-ink-text',
+        description:
+          'Convert handwritten ink strokes on a OneNote page to text using OCR. Extracts InkML data, renders to PNG, and processes with Tesseract.js (primary) or LocalFoundry vision model (fallback).',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            sectionName: {
+              type: 'string',
+              description: 'Section display name containing the page',
+            },
+            meetingTitle: {
+              type: 'string',
+              description: 'Meeting title (page title) to process',
+            },
+            language: {
+              type: 'string',
+              description: 'OCR language code (ISO 639-1, e.g., "eng", "fra", "deu")',
+              default: 'eng',
+            },
+            dpi: {
+              type: 'number',
+              description: 'Rendering DPI for OCR (higher = better quality, more memory)',
+              default: 150,
+              minimum: 96,
+              maximum: 300,
+            },
+            useLocalFoundry: {
+              type: 'boolean',
+              description: 'Force use of LocalFoundry vision model instead of Tesseract.js',
+              default: false,
+            },
+            savePng: {
+              type: 'boolean',
+              description: 'Save rendered PNG to disk for debugging (path: ./debug/ink-{pageId}.png)',
+              default: false,
+            },
+          },
+          required: ['sectionName', 'meetingTitle'],
+        },
+        handler: this.getInkText.bind(this),
       },
     ];
   }
@@ -1249,6 +1365,136 @@ export class MicrosoftService implements BaseService {
         message: 'Authentication token is invalid or expired. Please re-authenticate.',
         error: error instanceof Error ? error.message : String(error),
       };
+    }
+  }
+
+  /**
+   * Create or reuse a OneNote section and populate with meeting pages
+   */
+  private async createSectionWithPages(input: Record<string, unknown>): Promise<unknown> {
+    try {
+      // Extract and validate input
+      const sectionName = input['sectionName'] as string;
+      const meetings = input['meetings'] as Array<{
+        title: string;
+        date: string;
+        time?: string;
+        preBriefNotes?: string;
+      }>;
+
+      if (!sectionName) {
+        throw new Error('sectionName is required');
+      }
+
+      if (!meetings || !Array.isArray(meetings) || meetings.length === 0) {
+        throw new Error('meetings array is required and must contain at least one meeting');
+      }
+
+      // Get valid access token (handles refresh automatically)
+      const accessToken = await this.tokenStorage.getValidAccessToken();
+
+      const oneNoteClient = new OneNoteClient(accessToken);
+
+      const sectionInput: SectionInput = {
+        name: sectionName,
+        meetings,
+      };
+
+      return await createSectionHandler(oneNoteClient, sectionInput);
+    } catch (error) {
+      logger.error({
+        error: error instanceof Error ? error.message : String(error),
+        operation: 'create_section_with_pages',
+      }, 'Failed to create section with pages');
+      throw error;
+    }
+  }
+
+  /**
+   * Update the content of an existing OneNote page
+   */
+  private async updatePageContent(input: Record<string, unknown>): Promise<unknown> {
+    try {
+      // Extract and validate input
+      const sectionName = input['sectionName'] as string;
+      const meetingTitle = input['meetingTitle'] as string;
+      const content = input['content'] as string;
+
+      if (!sectionName) {
+        throw new Error('sectionName is required');
+      }
+
+      if (!meetingTitle) {
+        throw new Error('meetingTitle is required');
+      }
+
+      if (!content) {
+        throw new Error('content is required');
+      }
+
+      // Get valid access token (handles refresh automatically)
+      const accessToken = await this.tokenStorage.getValidAccessToken();
+
+      const oneNoteClient = new OneNoteClient(accessToken);
+
+      const pageUpdateInput: PageUpdateInput = {
+        sectionName,
+        meetingTitle,
+        content,
+      };
+
+      return await updatePageHandler(oneNoteClient, pageUpdateInput);
+    } catch (error) {
+      logger.error({
+        error: error instanceof Error ? error.message : String(error),
+        operation: 'update_page_content',
+      }, 'Failed to update page content');
+      throw error;
+    }
+  }
+
+  /**
+   * Convert handwritten ink to text using OCR
+   */
+  private async getInkText(input: Record<string, unknown>): Promise<unknown> {
+    try {
+      // Extract and validate input
+      const sectionName = input['sectionName'] as string;
+      const meetingTitle = input['meetingTitle'] as string;
+      const language = (input['language'] as string) || 'eng';
+      const dpi = (input['dpi'] as number) || 150;
+      const useLocalFoundry = (input['useLocalFoundry'] as boolean) || false;
+      const savePng = (input['savePng'] as boolean) || false;
+
+      if (!sectionName) {
+        throw new Error('sectionName is required');
+      }
+
+      if (!meetingTitle) {
+        throw new Error('meetingTitle is required');
+      }
+
+      // Get valid access token (handles refresh automatically)
+      const accessToken = await this.tokenStorage.getValidAccessToken();
+
+      const oneNoteClient = new OneNoteClient(accessToken);
+
+      const inkToTextInput: InkToTextInput = {
+        sectionName,
+        meetingTitle,
+        language,
+        dpi,
+        useLocalFoundry,
+        savePng,
+      };
+
+      return await getInkTextHandler(oneNoteClient, inkToTextInput);
+    } catch (error) {
+      logger.error({
+        error: error instanceof Error ? error.message : String(error),
+        operation: 'get_ink_text',
+      }, 'Failed to convert ink to text');
+      throw error;
     }
   }
 }

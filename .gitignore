@@ -33,6 +33,7 @@ pino-debug.log*
 # OS files
 .DS_Store
 Thumbs.db
+.mcp-server.pid
 
 # IDE
 .vscode/*
@@ -54,6 +55,7 @@ Thumbs.db
 # Temporary files
 tmp/
 temp/
+debug/
 *.tmp
 
 # Message action storage (runtime data)

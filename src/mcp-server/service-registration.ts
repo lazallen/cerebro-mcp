@@ -63,6 +63,7 @@ export async function registerServices(registry: ServiceRegistry): Promise<void>
             'User.Read',
             'Calendars.Read',
             'Calendars.ReadWrite',
+            'Notes.ReadWrite',
           ],
           authEndpoint: `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize`,
           tokenEndpoint: `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`,

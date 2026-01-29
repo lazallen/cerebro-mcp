@@ -7,7 +7,6 @@
  */
 
 import * as http from 'http';
-import { randomUUID } from 'crypto';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
@@ -40,16 +39,19 @@ export class MCPServer {
     this.timeout = parseInt(process.env['MCP_TIMEOUT'] ?? '30000', 10);
     this.logToolInput = process.env['MCP_LOG_TOOL_INPUT'] === 'true';
 
-    // Create Streamable HTTP transport with per-session server creation
+    // Create Streamable HTTP transport in STATELESS mode
+    // Stateless mode: no session IDs required, each request is independent
+    // This prevents "Mcp-Session-Id header is required" errors on subsequent connections
     this.transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: () => randomUUID(),
+      sessionIdGenerator: undefined, // undefined = stateless mode
     });
 
     logger.info({
       operation: 'mcp_server_init',
       timeout: this.timeout,
       logToolInput: this.logToolInput,
-      msg: 'MCP server initialized with per-session Streamable HTTP transport',
+      transportMode: 'stateless',
+      msg: 'MCP server initialized with Streamable HTTP transport (stateless mode)',
     });
   }
 
@@ -105,28 +107,62 @@ export class MCPServer {
    * This method handles both SSE connections and message posts
    */
   async handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    const correlationId = generateCorrelationId();
+
     try {
+      // Log request with headers for debugging connection issues
       logger.info({
         operation: 'mcp_http_request',
+        correlationId,
         method: req.method,
         url: req.url,
+        headers: {
+          accept: req.headers['accept'],
+          contentType: req.headers['content-type'],
+          connection: req.headers['connection'],
+        },
         msg: `MCP HTTP request: ${req.method ?? 'GET'} ${req.url ?? '/'}`,
       });
 
+      // Validate Accept header for SSE connections
+      const acceptHeader = req.headers['accept'];
+      if (req.method === 'GET' && !acceptHeader?.includes('text/event-stream')) {
+        logger.warn({
+          operation: 'mcp_http_request_invalid_accept',
+          correlationId,
+          acceptHeader,
+          msg: 'Client did not provide correct Accept header for SSE connection',
+        });
+      }
+
       // Delegate to the Streamable HTTP transport
       await this.transport.handleRequest(req, res);
+
+      logger.info({
+        operation: 'mcp_http_request_success',
+        correlationId,
+        method: req.method,
+        url: req.url,
+        msg: 'MCP HTTP request handled successfully',
+      });
     } catch (error) {
       logger.error({
         operation: 'mcp_http_request_error',
+        correlationId,
         method: req.method,
         url: req.url,
         error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
         msg: 'Error handling MCP HTTP request',
       });
 
       if (!res.headersSent) {
         res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Internal Server Error' }));
+        res.end(JSON.stringify({
+          error: 'Internal Server Error',
+          correlationId,
+          message: error instanceof Error ? error.message : String(error),
+        }));
       }
     }
   }
