@@ -11,8 +11,10 @@ import { MicrosoftTokenStorage } from './token-storage';
 import { MicrosoftApiClient } from './api-client';
 import { OneNoteClient } from './onenote-client';
 import { createSectionWithPages as createSectionHandler, updatePage as updatePageHandler, getInkText as getInkTextHandler } from '../../mcp-server/handlers/onenote-tools';
+import { moveEmail as moveEmailHandler } from '../../mcp-server/handlers/email-move-tools';
 import type { SectionInput, PageUpdateInput } from '../../types/onenote';
 import type { InkToTextInput } from '../../types/inkml';
+import type { MoveEmailInput } from '../../types/email';
 
 export class MicrosoftService implements BaseService {
   public readonly config: ServiceConfig;
@@ -180,6 +182,34 @@ export class MicrosoftService implements BaseService {
           properties: {},
         },
         handler: this.listMailFolders.bind(this),
+      },
+      {
+        name: 'move-email',
+        description:
+          'Move an email to a different folder in Outlook. Supports nested folder paths (e.g., \'Projects/2026/Q1\'). Marks emails as read by default after moving. Operation is idempotent - moving an email to its current folder succeeds without error.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            emailId: {
+              type: 'string',
+              description:
+                'Email message ID from list-emails tool. Format: Microsoft Graph API message GUID.',
+            },
+            folderPath: {
+              type: 'string',
+              description:
+                'Target folder path. Supports nested paths with forward slash delimiter (e.g., \'Archive\', \'Projects/2026/Q1\', \'Work/Clients/ClientA\'). Common folders: inbox, sent, drafts, spam, junk, trash, deleted. Case-sensitive for custom folders.',
+            },
+            markAsRead: {
+              type: 'boolean',
+              description:
+                'Mark email as read after moving. Default: true. Set to false to preserve original read/unread status.',
+              default: true,
+            },
+          },
+          required: ['emailId', 'folderPath'],
+        },
+        handler: this.moveEmailMethod.bind(this),
       },
 
       // Calendar Tools
@@ -863,6 +893,54 @@ export class MicrosoftService implements BaseService {
       folders,
       count: folders.length,
     };
+  }
+
+  /**
+   * Move an email to a target folder
+   * T020: Add move-email service method binding
+   */
+  private async moveEmailMethod(input: Record<string, unknown>): Promise<unknown> {
+    // Validate and extract input
+    const moveInput: MoveEmailInput = {
+      emailId: input['emailId'] as string,
+      folderPath: input['folderPath'] as string,
+      markAsRead: input['markAsRead'] as boolean | undefined,
+    };
+
+    // Create folder resolver that uses this service's methods
+    const folderResolver = async (path: string): Promise<string> => {
+      const wellKnownName = this.mapToWellKnownFolder(path);
+
+      if (wellKnownName === null) {
+        // Special case 'all' is not valid for move operations
+        throw new Error('Cannot move email to "all" folders - specify a single folder path');
+      } else if (wellKnownName !== undefined) {
+        // Standard well-known folder (inbox, sent, etc.)
+        // Fetch the actual folder ID
+        const response = await this.apiClient.request(
+          `/me/mailFolders/${wellKnownName}`,
+          {
+            method: 'GET',
+            params: {
+              $select: 'id',
+            },
+          }
+        );
+        const folder = response.data as { id?: string };
+        if (!folder.id) {
+          throw new Error(`Failed to resolve well-known folder: ${wellKnownName}`);
+        }
+        return folder.id;
+      } else {
+        // Custom folder - resolve using existing method
+        return this.resolveFolderName(path);
+      }
+    };
+
+    // Call the handler
+    const result = await moveEmailHandler(moveInput, this.apiClient, folderResolver);
+
+    return result;
   }
 
   /**
