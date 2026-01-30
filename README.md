@@ -80,6 +80,94 @@ MCP_SERVER_PORT=3334       # MCP endpoint (HTTP)
 
 📚 **Detailed setup guide**: [docs/guides/claude-code-setup.md](docs/guides/claude-code-setup.md)
 
+## Connection Management & Troubleshooting
+
+### Quick Server Management
+
+Use the included startup script for easy server management:
+
+```bash
+./start-mcp.sh start     # Start the server
+./start-mcp.sh stop      # Stop the server
+./start-mcp.sh restart   # Restart the server
+./start-mcp.sh status    # Check server status and health
+./start-mcp.sh health    # Test health endpoint
+./start-mcp.sh logs      # View server logs (real-time)
+```
+
+### Health Checks
+
+The server provides health check endpoints for monitoring:
+
+```bash
+# Simple health check
+curl http://localhost:3334/health
+
+# Detailed status (shows all services and authentication state)
+curl http://localhost:3334/health/status | jq '.'
+```
+
+### Common Connection Issues
+
+**Issue: "Unable to connect to MCP server"**
+
+```bash
+# Check if server is running
+./start-mcp.sh status
+
+# If not running, start it
+./start-mcp.sh start
+
+# Check ports are listening
+ss -tlnp | grep -E ":(3333|3334)"
+```
+
+**Issue: Connection drops frequently**
+
+The server now includes:
+- Keep-alive connections (65s timeout)
+- Better connection management
+- Automatic session tracking
+
+If issues persist, check the logs:
+```bash
+./start-mcp.sh logs
+```
+
+**Issue: Server fails to start**
+
+Common causes:
+1. **Port already in use**: Stop existing server first
+   ```bash
+   ./start-mcp.sh stop
+   ./start-mcp.sh start
+   ```
+
+2. **Missing dependencies**: Reinstall
+   ```bash
+   npm install
+   npm run build
+   ```
+
+3. **SSL certificate issues**: Regenerate certificates
+   ```bash
+   mkcert -install
+   mkcert localhost 127.0.0.1 ::1
+   ```
+
+📚 **Complete troubleshooting guide**: [MCP_CONNECTION_GUIDE.md](MCP_CONNECTION_GUIDE.md)
+
+### Reliability Improvements (v0.3.0+)
+
+This version includes several connection reliability improvements:
+
+- **Health Check Endpoints**: `/health` and `/health/status` for monitoring
+- **Keep-Alive Connections**: 65-second keep-alive with 2-minute socket timeouts
+- **Connection Tracking**: Better management of active connections
+- **Enhanced Logging**: Detailed connection logs with correlation IDs
+- **Graceful Shutdown**: Proper cleanup of connections and resources
+- **Startup Script**: `start-mcp.sh` for easy server management
+
 ## Configuration
 
 Key environment variables (see [.env.example](.env.example) for full list):
@@ -146,9 +234,9 @@ npm run start:pretty
 
 ## Available Tools
 
-**Microsoft 365** (11 tools):
+**Microsoft 365** (12 tools):
 - **Auth**: authenticate, check-auth-status
-- **Email**: list-emails (with folder filtering), read-email, send-email
+- **Email**: list-emails (with folder filtering), read-email, send-email, move-email
 - **Calendar**: list-events, get-event, create-event, update-event, delete-event, find-meeting-times
 
 ### Microsoft 365 Email Tools
@@ -224,6 +312,76 @@ Examples:
 - Nested paths → resolved by traversing parent/child relationships
 
 **Note**: If a folder path doesn't exist, you'll get a helpful error message showing available folders at each level. Use `list-mail-folders` to discover the exact folder structure in your mailbox.
+
+**`move-email`** - Move an email to a different folder in Outlook
+- **emailId** (required): Email message ID from `list-emails` tool
+- **folderPath** (required): Target folder path (supports nested paths with "/" delimiter)
+  - Standard folders: inbox, sent, drafts, trash, archive
+  - Custom folders: Any folder name in your mailbox
+  - Nested paths: Use "/" to specify subfolders (e.g., "Projects/2026/Q1")
+- **markAsRead** (optional, default: true): Whether to mark the email as read after moving
+
+Examples:
+```typescript
+// Move email to Archive folder and mark as read (default)
+{
+  emailId: "AAMkAGI2T...",
+  folderPath: "Archive"
+}
+
+// Move to nested folder path
+{
+  emailId: "AAMkAGI2T...",
+  folderPath: "Projects/2026/Q1",
+  markAsRead: true
+}
+
+// Move to standard folder without marking as read
+{
+  emailId: "AAMkAGI2T...",
+  folderPath: "sent",
+  markAsRead: false
+}
+
+// Move to deeply nested custom folder
+{
+  emailId: "AAMkAGI2T...",
+  folderPath: "Clients/Acme Corp/Invoices"
+}
+```
+
+Returns on success:
+```typescript
+{
+  success: true,
+  emailId: "AAMkAGI2T...",
+  subject: "Meeting notes from Q1 review",
+  fromFolder: "Inbox",
+  toFolder: "Projects/2026/Q1",
+  markedAsRead: true,
+  wasIdempotent: false
+}
+```
+
+**Idempotent Behavior**: Moving an email to its current folder succeeds without error. The response includes `wasIdempotent: true` to indicate the email was already in the target folder.
+
+```typescript
+// Email already in Projects/2026/Q1 folder
+{
+  emailId: "AAMkAGI2T...",
+  folderPath: "Projects/2026/Q1"
+}
+// Returns success with wasIdempotent: true
+```
+
+**Error Handling**: Clear error messages with context for common failures:
+- **EMAIL_NOT_FOUND**: Email ID doesn't exist or was deleted
+- **FOLDER_NOT_FOUND**: Target folder path doesn't exist (includes available folders at each level)
+- **PERMISSION_DENIED**: Insufficient permissions to move email or access folder
+- **NETWORK_ERROR**: Connection issues with Microsoft Graph API
+- **INVALID_INPUT**: Missing required parameters or invalid folder path format
+
+**Note**: Use `list-mail-folders` to discover available folders before moving. The same folder resolution logic from `list-emails` applies to nested paths.
 
 **Slack** (16 tools):
 - **Auth**: authenticate, check-auth-status
