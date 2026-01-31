@@ -247,16 +247,18 @@ export async function getInkText(
   client: OneNoteClient,
   input: InkToTextInput
 ): Promise<InkToTextResult> {
-  const { sectionName, meetingTitle, language = 'eng', dpi = 96, useLocalFoundry = false, savePng = false } = input;
+  const {
+    sectionName,
+    meetingTitle,
+    confidenceThreshold = 0.7
+  } = input;
   const startTime = Date.now();
 
   logger.info({
     operation: 'onenote_get_ink_text',
     sectionName,
     meetingTitle,
-    language,
-    dpi,
-    useLocalFoundry,
+    confidenceThreshold,
   }, 'Starting ink-to-text conversion');
 
   try {
@@ -296,99 +298,65 @@ export async function getInkText(
         recognizedText: '',
         ocrMethod: 'none',
         processingTime: Date.now() - startTime,
-        strokeCount: 0,
       };
     }
 
-    // Import parsers and renderers
-    const { parseInkML } = await import('../../services/microsoft/inkml-parser');
-    const { renderStrokesToPNG, savePngForDebug } = await import('../../services/microsoft/ink-renderer');
+    // Perform Windows Ink recognition
+    logger.info('Using Windows Ink recognition');
 
-    // Parse InkML to extract strokes
-    const inkData = parseInkML(inkmlXml);
+    const { recognizeWithWindowsInk } = await import('../../ocr/windows-ink-recognizer');
+    const { cleanupHandwritingText } = await import('../../ocr/handwriting-cleanup');
+    const { LocalFoundryClient } = await import('../../services/localfoundry/localfoundry-client');
 
-    if (inkData.strokes.length === 0) {
-      logger.info({ pageId: page.id }, 'No strokes found in InkML data');
-      return {
-        pageId: page.id,
-        title: page.title,
-        hasInk: false,
-        recognizedText: '',
-        ocrMethod: 'none',
-        processingTime: Date.now() - startTime,
-        strokeCount: 0,
-      };
-    }
-
-    // Render strokes to PNG
-    const { buffer, width, height } = await renderStrokesToPNG(inkData, dpi);
-
-    // Save PNG for debugging if requested
-    let debugPngPath: string | undefined;
-    if (savePng) {
-      debugPngPath = await savePngForDebug(buffer, page.id);
-    }
-
-    // Perform OCR
     let recognizedText = '';
     let confidence = 0;
-    let ocrMethod: 'tesseract' | 'localfoundry' | 'none' = 'none';
+    let ocrMethod: 'windows-ink+localfoundry' | 'none' = 'none';
+    let lowConfidenceWordCount: number | undefined;
 
-    if (useLocalFoundry) {
-      // Use LocalFoundry directly
-      const { recognizeWithVision } = await import('../../ocr/localfoundry-recognizer');
+    try {
+      // Step 1: Windows Ink recognition
+      const windowsInkResult = await recognizeWithWindowsInk(inkmlXml, confidenceThreshold);
+
+      logger.info({
+        wordCount: windowsInkResult.wordCount,
+        lowConfidenceCount: windowsInkResult.lowConfidenceWords.length,
+      }, 'Windows Ink recognition complete');
+
+      // Step 2: LocalFoundry cleanup
       const localFoundryEndpoint = process.env['LOCALFOUNDRY_ENDPOINT'] || 'http://localhost:8080/v1/chat/completions';
       const localFoundryModel = process.env['LOCALFOUNDRY_MODEL'] || 'phi-4';
+      const localFoundryTimeout = parseInt(process.env['LOCALFOUNDRY_TIMEOUT'] || '120000', 10);
 
-      try {
-        const result = await recognizeWithVision(buffer, localFoundryEndpoint, localFoundryModel);
-        recognizedText = result.text;
-        confidence = result.confidence;
-        ocrMethod = 'localfoundry';
-      } catch (error) {
-        logger.warn({
-          error: error instanceof Error ? error.message : String(error),
-        }, 'LocalFoundry recognition failed');
-        throw error;
+      const localFoundryClient = new LocalFoundryClient({
+        endpoint: localFoundryEndpoint,
+        model: localFoundryModel,
+        timeout: localFoundryTimeout,
+      });
+
+      recognizedText = await cleanupHandwritingText(windowsInkResult, localFoundryClient);
+      lowConfidenceWordCount = windowsInkResult.lowConfidenceWords.length;
+
+      // Calculate average confidence from Windows Ink
+      if (windowsInkResult.wordCount > 0) {
+        // We don't have individual confidence from cleanup, use indicator of low-confidence words
+        const lowConfidenceRatio = windowsInkResult.lowConfidenceWords.length / windowsInkResult.wordCount;
+        confidence = 1.0 - (lowConfidenceRatio * 0.3); // Heuristic: reduce by up to 30% based on low-confidence words
+      } else {
+        confidence = 0.9; // Default high confidence for Windows Ink
       }
-    } else {
-      // Try Tesseract first
-      const { recognizeHandwriting } = await import('../../ocr/tesseract-recognizer');
 
-      try {
-        const result = await recognizeHandwriting(buffer, language);
-        recognizedText = result.text;
-        confidence = result.confidence;
-        ocrMethod = 'tesseract';
+      ocrMethod = 'windows-ink+localfoundry';
 
-        // If Tesseract confidence is too low, try LocalFoundry fallback
-        if (confidence < 0.6) {
-          logger.info({ confidence }, 'Tesseract confidence low, trying LocalFoundry fallback');
+      logger.info({
+        originalText: windowsInkResult.fullText.substring(0, 100),
+        cleanedText: recognizedText.substring(0, 100),
+      }, 'LocalFoundry cleanup complete');
 
-          const { recognizeWithVision } = await import('../../ocr/localfoundry-recognizer');
-          const localFoundryEndpoint = process.env['LOCALFOUNDRY_ENDPOINT'] || 'http://localhost:8080/v1/chat/completions';
-          const localFoundryModel = process.env['LOCALFOUNDRY_MODEL'] || 'phi-4';
-
-          try {
-            const fallbackResult = await recognizeWithVision(buffer, localFoundryEndpoint, localFoundryModel);
-            recognizedText = fallbackResult.text;
-            confidence = fallbackResult.confidence;
-            ocrMethod = 'localfoundry';
-
-            logger.info('LocalFoundry fallback succeeded');
-          } catch (fallbackError) {
-            logger.warn({
-              error: fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
-            }, 'LocalFoundry fallback failed, using Tesseract result');
-            // Keep Tesseract result
-          }
-        }
-      } catch (error) {
-        logger.error({
-          error: error instanceof Error ? error.message : String(error),
-        }, 'Tesseract recognition failed');
-        throw error;
-      }
+    } catch (error) {
+      logger.error({
+        error: error instanceof Error ? error.message : String(error),
+      }, 'Windows Ink recognition failed');
+      throw error;
     }
 
     const processingTime = Date.now() - startTime;
@@ -401,9 +369,7 @@ export async function getInkText(
       ocrMethod,
       confidence,
       processingTime,
-      strokeCount: inkData.strokes.length,
-      imageDimensions: { width, height },
-      debugPngPath,
+      lowConfidenceWordCount,
     };
 
     logger.info({

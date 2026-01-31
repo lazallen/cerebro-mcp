@@ -44,17 +44,14 @@ export interface BoundingBox {
 export interface OCRResult {
   text: string;           // Recognized text (markdown format)
   confidence?: number;    // 0-1 confidence score
-  method: 'tesseract' | 'localfoundry' | 'none';
+  method: 'windows-ink+localfoundry' | 'none';
   processingTime: number; // milliseconds
 }
 
 export interface InkToTextInput {
   sectionName: string;
   meetingTitle: string;
-  language?: string;      // ISO 639-1 code (default: 'eng')
-  useLocalFoundry?: boolean;
-  savePng?: boolean;      // Debug: save rendered image
-  dpi?: number;           // Rendering DPI (default: 150)
+  confidenceThreshold?: number; // Threshold to flag low-confidence words (default: 0.7)
 }
 
 export interface InkToTextResult {
@@ -62,15 +59,10 @@ export interface InkToTextResult {
   title: string;
   hasInk: boolean;
   recognizedText: string; // Markdown format
-  ocrMethod: 'tesseract' | 'localfoundry' | 'none';
+  ocrMethod: 'windows-ink+localfoundry' | 'none';
   confidence?: number;
   processingTime: number;
-  strokeCount?: number;
-  imageDimensions?: {
-    width: number;
-    height: number;
-  };
-  debugPngPath?: string;
+  lowConfidenceWordCount?: number; // Count of words below confidence threshold
 }
 
 // InkML XML parsing types

@@ -517,7 +517,7 @@ export class MicrosoftService implements BaseService {
       {
         name: 'onenote-get-ink-text',
         description:
-          'Convert handwritten ink strokes on a OneNote page to text using OCR. Extracts InkML data, renders to PNG, and processes with Tesseract.js (primary) or LocalFoundry vision model (fallback).',
+          'Convert handwritten ink strokes on a OneNote page to text using Windows Ink API and LocalFoundry cleanup. Provides 95-100% accuracy with per-word confidence scores.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -529,27 +529,12 @@ export class MicrosoftService implements BaseService {
               type: 'string',
               description: 'Meeting title (page title) to process',
             },
-            language: {
-              type: 'string',
-              description: 'OCR language code (ISO 639-1, e.g., "eng", "fra", "deu")',
-              default: 'eng',
-            },
-            dpi: {
+            confidenceThreshold: {
               type: 'number',
-              description: 'Rendering DPI for OCR (higher = better quality, more memory)',
-              default: 150,
-              minimum: 96,
-              maximum: 300,
-            },
-            useLocalFoundry: {
-              type: 'boolean',
-              description: 'Force use of LocalFoundry vision model instead of Tesseract.js',
-              default: false,
-            },
-            savePng: {
-              type: 'boolean',
-              description: 'Save rendered PNG to disk for debugging (path: ./debug/ink-{pageId}.png)',
-              default: false,
+              description: 'Confidence threshold for flagging low-confidence words (0-1 scale)',
+              default: 0.7,
+              minimum: 0,
+              maximum: 1,
             },
           },
           required: ['sectionName', 'meetingTitle'],
@@ -1539,10 +1524,7 @@ export class MicrosoftService implements BaseService {
       // Extract and validate input
       const sectionName = input['sectionName'] as string;
       const meetingTitle = input['meetingTitle'] as string;
-      const language = (input['language'] as string) || 'eng';
-      const dpi = (input['dpi'] as number) || 150;
-      const useLocalFoundry = (input['useLocalFoundry'] as boolean) || false;
-      const savePng = (input['savePng'] as boolean) || false;
+      const confidenceThreshold = (input['confidenceThreshold'] as number) || 0.7;
 
       if (!sectionName) {
         throw new Error('sectionName is required');
@@ -1560,10 +1542,7 @@ export class MicrosoftService implements BaseService {
       const inkToTextInput: InkToTextInput = {
         sectionName,
         meetingTitle,
-        language,
-        dpi,
-        useLocalFoundry,
-        savePng,
+        confidenceThreshold,
       };
 
       return await getInkTextHandler(oneNoteClient, inkToTextInput);

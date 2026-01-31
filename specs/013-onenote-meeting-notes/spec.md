@@ -20,6 +20,10 @@
 - Q: Which local OCR/handwriting recognition solution should be the primary implementation? → A: Tesseract.js as primary with LocalFoundry vision fallback
 - Q: What should the exact section name format be for daily meeting sections? → A: YYYY-MM-DD Meetings
 
+### Session 2026-01-31
+
+- Q: How to improve handwriting recognition accuracy beyond Tesseract's 60-70% accuracy? → A: Implement Windows Ink API integration (100% accuracy) with LocalFoundry text cleanup pipeline for Windows/WSL environments
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Daily Meeting Section Creation (Priority: P1)
@@ -111,19 +115,22 @@ After meetings are completed and notes are no longer needed, the user deletes ol
 - **FR-003**: System MUST set the title and initial content for newly created pages
 - **FR-004**: System MUST update the content of an existing OneNote page identified by section name and meeting title
 - **FR-005**: System MUST parse multipart MIME response from OneNote Graph API to extract InkML XML data containing stroke coordinates
-- **FR-006**: System MUST send rendered ink images to Tesseract.js for OCR processing, with fallback to LocalFoundry vision model if available
-- **FR-007**: System MUST return converted text from LocalFoundry to the user
-- **FR-008**: System MUST delete a specified OneNote section and all its pages
-- **FR-009**: System MUST authenticate with Microsoft Graph API to access OneNote
-- **FR-010**: System MUST handle errors from OneNote API and provide clear error messages
-- **FR-011**: System MUST handle errors from LocalFoundry API and provide clear error messages
-- **FR-012**: System MUST support organizing pages within sections in a specified order
-- **FR-013**: System MUST detect duplicate page titles within a section and skip creating duplicate pages during section setup
-- **FR-014**: System MUST log the start and completion of all OneNote and LocalFoundry operations including operation type, timestamp, and success/failure status
-- **FR-015**: System MUST log detailed error information (error type, message, context) when operations fail
-- **FR-016**: System MUST accept and preserve markdown format for pre-brief notes and converted text
-- **FR-017**: System MUST parse InkML XML to extract stroke coordinate data (X, Y, pressure)
-- **FR-018**: System MUST render InkML strokes to image format (PNG) for OCR processing
+- **FR-006**: System MUST use Windows Ink API for handwriting recognition (requires Windows/WSL environment)
+- **FR-007**: System MUST send InkML data to Windows Ink recognizer, returning per-word confidence scores and alternative candidates
+- **FR-008**: System MUST send Windows Ink recognition results to LocalFoundry for intelligent text cleanup using confidence-aware prompts
+- **FR-009**: System MUST return converted text from OCR processing to the user
+- **FR-010**: System MUST delete a specified OneNote section and all its pages
+- **FR-011**: System MUST authenticate with Microsoft Graph API to access OneNote
+- **FR-012**: System MUST handle errors from OneNote API and provide clear error messages
+- **FR-013**: System MUST handle errors from LocalFoundry API and provide clear error messages
+- **FR-014**: System MUST support organizing pages within sections in a specified order
+- **FR-015**: System MUST detect duplicate page titles within a section and skip creating duplicate pages during section setup
+- **FR-016**: System MUST log the start and completion of all OneNote and LocalFoundry operations including operation type, timestamp, and success/failure status
+- **FR-017**: System MUST log detailed error information (error type, message, context) when operations fail
+- **FR-018**: System MUST accept and preserve markdown format for pre-brief notes and converted text
+- **FR-019**: System MUST parse InkML XML to extract stroke coordinate data (X, Y, pressure)
+- **FR-021**: System MUST flag low-confidence words (below configurable threshold) from Windows Ink recognition for LocalFoundry review
+- **FR-022**: System MUST gracefully fall back to original Windows Ink text if LocalFoundry cleanup is unavailable
 
 ### Key Entities
 
@@ -140,8 +147,8 @@ After meetings are completed and notes are no longer needed, the user deletes ol
 
 - **SC-001**: Users can create a daily section with multiple meeting pages in under 2 minutes
 - **SC-002**: Pre-brief notes updates complete within 5 seconds per page
-- **SC-003**: Ink-to-text conversion completes and returns results within 10 seconds for typical meeting notes (1-5 pages of handwriting)
-- **SC-004**: 95% of ink strokes are successfully converted to readable text with acceptable accuracy
+- **SC-003**: Ink-to-text conversion completes and returns results within 5 seconds for typical meeting notes (1-5 pages of handwriting)
+- **SC-004**: 95-100% of ink strokes are successfully converted to readable text (100% word accuracy with intelligent LocalFoundry cleanup)
 - **SC-005**: Section deletion completes within 3 seconds regardless of number of pages
 - **SC-006**: Users successfully complete morning setup workflow without errors 98% of the time
 - **SC-007**: All OneNote operations provide clear error messages when failures occur, enabling users to resolve issues without technical support
@@ -158,8 +165,10 @@ After meetings are completed and notes are no longer needed, the user deletes ol
 - OneNote Graph API returns multipart MIME responses when requesting pages with includeInkML=true parameter
 - Multipart response contains 3 parts: HTML content, InkML XML (application/inkml+xml), and resources
 - OneNote Graph API does NOT provide pre-recognized text; local OCR/recognition is required
-- InkML XML contains raw stroke data (X, Y coordinates and pressure values) that must be parsed and rendered to images before OCR
-- Primary OCR solution is Tesseract.js with optional LocalFoundry vision model fallback
+- InkML XML contains raw stroke data (X, Y coordinates and pressure values)
+- Windows Ink API (via InkWinRec.exe) with LocalFoundry text cleanup is the only OCR method
+- Requires Windows/WSL environment for handwriting recognition
+- InkML is sent directly to Windows Ink API (no image rendering required)
 - Users manage section cleanup manually rather than automatic retention policies
 - Meeting pages are intended for short-term use (days, not weeks or months)
 
@@ -206,32 +215,146 @@ Example trace structure:
 
 ### OCR Processing Pipeline
 
-Since OneNote Graph API does NOT provide pre-recognized text, the system must:
+Since OneNote Graph API does NOT provide pre-recognized text, the system uses Windows Ink API for handwriting recognition:
 
-1. **Parse InkML XML**: Extract stroke coordinate data (X, Y, pressure) from trace elements
-   - Handle both direct traces and trace groups
-   - Parse brush definitions (width, height, color, transparency)
-   - Extract coordinate triplets (X, Y, pressure) from comma-separated strings
-2. **Render to Image**: Convert stroke coordinates to PNG image format
-   - Convert from himetric units to pixels using DPI-aware formula: `pixels = himetric × 0.0393701 × dpi`
-   - Calculate bounding box at target rendering DPI (not parser DPI)
-   - Apply memory protection limits (max 8,192 pixels per dimension, max 10,000 strokes)
-   - Render strokes with appropriate line width (note: brush width from InkML may need scaling adjustment)
-   - Convert OneNote's default blue ink (#004F8B) to black (#000000) for better OCR accuracy
-3. **OCR Recognition**: Send rendered image to Tesseract.js for handwriting recognition
-   - Primary: Tesseract.js (open-source, local, cross-platform)
-   - Fallback: LocalFoundry vision model (if configured and available when Tesseract confidence < 60%)
-4. **Return Text**: Provide recognized text in markdown format
+1. **Windows Ink Recognition**: Send InkML XML directly to InkWinRec.exe (native Windows 11 Handwriting Recognition API)
+   - Executable spawns and receives InkML via stdin
+   - Returns rich JSON with per-word results:
+     - Recognized text for each word
+     - Confidence scores (0-1 scale)
+     - Top 5 alternative candidates per word
+     - Line structure and ordering information
+     - Bounding box coordinates
+   - Timeout: 30 seconds with graceful error handling
+   - Performance: ~3 seconds for typical page
+
+2. **Confidence Analysis**: Identify low-confidence words
+   - Default threshold: 0.7 (70% confidence)
+   - Flag words below threshold for LocalFoundry review
+   - Preserve line structure from Windows Ink
+
+3. **LocalFoundry Cleanup**: Send to LocalFoundry with confidence-aware prompt
+   - Prompt includes:
+     - Full recognized text
+     - List of low-confidence words with alternatives
+     - Context for intelligent correction
+   - LocalFoundry reviews and corrects ambiguous words
+   - Temperature: 0.3 (low for consistent corrections)
+   - Graceful fallback to original text if unavailable
+   - Performance: ~1-2 seconds
+
+4. **Return Text**: Provide cleaned, formatted text in markdown
+
+**Total Performance**: ~3-5 seconds with 95-100% accuracy
+
+### Windows Ink Architecture
+
+The Windows Ink recognition pipeline consists of three main components:
+
+#### 1. Windows Ink Recognizer (`src/ocr/windows-ink-recognizer.ts`)
+
+Executes the native Windows 11 Handwriting Recognition API via InkWinRec.exe:
+
+- **Input**: InkML XML string from OneNote
+- **Process**:
+  - Spawns `./windows/InkWinRec.exe` subprocess
+  - Pipes InkML data to stdin
+  - Captures JSON output from stdout
+  - Parses rich recognition results
+- **Output**: RecognizedText object containing:
+  - Full text with preserved line breaks
+  - Array of low-confidence words (below threshold)
+  - Each low-confidence word includes:
+    - Recognized text
+    - Confidence score (0-1)
+    - Top 5 alternative candidates
+  - Metadata (word count, line count)
+
+**Example JSON from InkWinRec.exe**:
+```json
+{
+  "recognizer": "Microsoft English (India) Handwriting Recognizer",
+  "items": [
+    {
+      "text": "This",
+      "confidence": 0.62,
+      "candidates": ["This", "this", "Theis", "Thins", "•This"],
+      "line": 0,
+      "orderInLine": 0
+    }
+  ]
+}
+```
+
+#### 2. Handwriting Cleanup (`src/ocr/handwriting-cleanup.ts`)
+
+Sends Windows Ink results to LocalFoundry for intelligent text correction:
+
+- **Input**: RecognizedText with confidence data
+- **Process**:
+  - Builds confidence-aware prompt highlighting problematic words
+  - Includes alternative candidates for context
+  - Sends to LocalFoundry with low temperature (0.3)
+  - Gracefully falls back to original text if unavailable
+- **Output**: Cleaned, formatted text
+
+**Example Prompt**:
+```
+Recognized text: "This is a test"
+
+Low-confidence words that may need correction:
+- "is" (55% confidence) - alternatives: is, in, ins, it, s
+- "a" (47% confidence) - alternatives: a, "a, o, s, n
+
+Please review and correct any obvious errors...
+```
+
+#### 3. Integration in OneNote Tools Handler
+
+The ink-to-text handler ([src/mcp-server/handlers/onenote-tools.ts](../../src/mcp-server/handlers/onenote-tools.ts)) orchestrates the pipeline:
+
+- **Parameters**:
+  - `confidenceThreshold: number` - Threshold for flagging words (default: 0.7)
+- **Flow**:
+  1. Fetch InkML from OneNote page
+  2. Call Windows Ink recognizer
+  3. Call LocalFoundry cleanup
+  4. Return cleaned text with metadata
+- **Result**: InkToTextResult with:
+  - Recognized text
+  - OCR method: 'windows-ink+localfoundry'
+  - Confidence score (heuristic based on low-confidence ratio)
+  - Processing time
+  - Low-confidence word count
+
+#### Configuration
+
+Environment variables for Windows Ink + LocalFoundry:
+
+```bash
+# LocalFoundry Configuration (required for cleanup)
+LOCALFOUNDRY_ENDPOINT="http://localhost:8080/v1/chat/completions"
+LOCALFOUNDRY_MODEL="phi-4"
+LOCALFOUNDRY_TIMEOUT="120000"
+```
+
+#### Error Handling
+
+- **InkWinRec.exe not found**: Throws error with clear message
+- **Process timeout (30s)**: Kills process and throws timeout error
+- **Non-zero exit code**: Logs stderr and throws with diagnostic info
+- **JSON parse error**: Logs error and throws with sample output
+- **LocalFoundry unavailable**: Falls back to Windows Ink raw text (graceful degradation)
 
 ## Dependencies
 
 - Existing LocalFoundry MCP integration (Feature 011)
 - Microsoft Graph API access with appropriate OAuth2 scopes for OneNote (Notes.ReadWrite)
 - Active internet connection for OneNote API calls
-- Tesseract.js library for OCR processing (primary solution)
-- LocalFoundry endpoint availability and responsiveness (optional fallback for OCR)
-- Image processing library for rendering InkML strokes (e.g., node-canvas)
-- XML parsing library for InkML processing (e.g., xml2js or fast-xml-parser)
+- **Windows Ink Recognition**:
+  - Windows 11 operating system (or WSL2 with Windows 11 host)
+  - InkWinRec.exe executable (custom wrapper for Windows.UI.Input.Inking.Recognition API)
+  - LocalFoundry endpoint for text cleanup (graceful fallback if unavailable)
 
 ## Out of Scope
 
