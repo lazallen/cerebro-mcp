@@ -10,11 +10,13 @@ import { logger } from '../../common';
 import { MicrosoftTokenStorage } from './token-storage';
 import { MicrosoftApiClient } from './api-client';
 import { OneNoteClient } from './onenote-client';
+import { EventResponseClient } from './event-response-client';
 import { createSectionWithPages as createSectionHandler, updatePage as updatePageHandler, getInkText as getInkTextHandler } from '../../mcp-server/handlers/onenote-tools';
 import { moveEmail as moveEmailHandler } from '../../mcp-server/handlers/email-move-tools';
 import type { SectionInput, PageUpdateInput } from '../../types/onenote';
 import type { InkToTextInput } from '../../types/inkml';
 import type { MoveEmailInput } from '../../types/email';
+import type { EventResponseRequest } from '../../types/calendar';
 
 export class MicrosoftService implements BaseService {
   public readonly config: ServiceConfig;
@@ -443,6 +445,36 @@ export class MicrosoftService implements BaseService {
           required: ['attendees', 'meetingDuration'],
         },
         handler: this.findMeetingTimes.bind(this),
+      },
+      {
+        name: 'respond-to-event',
+        description:
+          'Respond to a meeting invitation (accept, decline, or tentatively accept). Includes retry logic for transient failures, rate limiting with Retry-After header support, and concurrency control.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            eventId: {
+              type: 'string',
+              description: 'Event ID from list-events or get-event',
+            },
+            response: {
+              type: 'string',
+              enum: ['accepted', 'declined', 'tentativelyAccepted'],
+              description: 'Type of response to send',
+            },
+            comment: {
+              type: 'string',
+              description: 'Optional comment to include with response (max 8KB UTF-8)',
+            },
+            sendResponse: {
+              type: 'boolean',
+              description: 'Whether to send a response to the organizer (default: true)',
+              default: true,
+            },
+          },
+          required: ['eventId', 'response'],
+        },
+        handler: this.respondToEvent.bind(this),
       },
 
       // OneNote Tools
@@ -1357,6 +1389,49 @@ export class MicrosoftService implements BaseService {
         },
       },
     };
+  }
+
+  /**
+   * Respond to a meeting invitation
+   */
+  private async respondToEvent(input: Record<string, unknown>): Promise<unknown> {
+    const eventId = input['eventId'] as string;
+    const response = input['response'] as EventResponseRequest['response'];
+    const comment = input['comment'] as string | undefined;
+    const sendResponse = (input['sendResponse'] as boolean | undefined) ?? true;
+
+    if (!eventId) {
+      throw new Error('eventId parameter is required');
+    }
+    if (!response) {
+      throw new Error('response parameter is required');
+    }
+    if (!['accepted', 'declined', 'tentativelyAccepted'].includes(response)) {
+      throw new Error(
+        'response must be one of: accepted, declined, tentativelyAccepted'
+      );
+    }
+
+    const eventResponseClient = new EventResponseClient(this.apiClient);
+
+    const request: EventResponseRequest = {
+      eventId,
+      response,
+      comment,
+      sendResponse,
+    };
+
+    // Call the appropriate method based on response type
+    switch (response) {
+      case 'declined':
+        return eventResponseClient.decline(request);
+      case 'accepted':
+        return eventResponseClient.accept(request);
+      case 'tentativelyAccepted':
+        return eventResponseClient.tentativelyAccept(request);
+      default:
+        throw new Error(`Invalid response type: ${response}`);
+    }
   }
 
   /**

@@ -156,7 +156,7 @@ export abstract class BaseAPIClient<T = unknown> {
                 statusCode,
                 this.serviceName,
                 `${config.method} ${path}`,
-                { response: parsedData }
+                { response: parsedData, headers: responseHeaders }
               );
             }
 
