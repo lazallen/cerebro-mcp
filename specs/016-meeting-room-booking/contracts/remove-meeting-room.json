@@ -1,0 +1,103 @@
+{
+  "name": "microsoft_remove-meeting-room",
+  "description": "Remove a meeting room booking from an existing calendar event. Removes room from resource attendees and optionally clears location field. Use this when meeting becomes virtual-only or plans change.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "eventId": {
+        "type": "string",
+        "description": "Calendar event ID (obtained from list-events)",
+        "examples": ["AAMkAGI2T..."]
+      },
+      "roomEmail": {
+        "type": "string",
+        "format": "email",
+        "description": "Room email address to remove (must match existing resource attendee)",
+        "examples": ["edi-l2-barajas@skyscanner.net"]
+      },
+      "clearLocation": {
+        "type": "boolean",
+        "description": "Whether to clear the event location field if it matches the room name (default: true)",
+        "default": true
+      }
+    },
+    "required": ["eventId", "roomEmail"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "success": {
+        "type": "boolean",
+        "description": "true if room was successfully removed"
+      },
+      "message": {
+        "type": "string",
+        "description": "Human-readable result message"
+      },
+      "eventId": {
+        "type": "string",
+        "description": "Calendar event ID (unchanged)"
+      },
+      "roomRemoved": {
+        "type": "string",
+        "description": "Room email address that was removed"
+      },
+      "eventWebLink": {
+        "type": "string",
+        "format": "uri",
+        "description": "Web link to view the updated event in Outlook"
+      }
+    },
+    "required": ["success", "message", "eventId", "roomRemoved"]
+  },
+  "errors": [
+    {
+      "code": "ROOM_NOT_FOUND",
+      "description": "Room is not currently booked for this meeting",
+      "message": "Room is not booked for this meeting. No changes made."
+    },
+    {
+      "code": "EVENT_NOT_FOUND",
+      "description": "Calendar event does not exist",
+      "message": "Calendar event not found. Please verify the event ID."
+    },
+    {
+      "code": "PERMISSION_DENIED",
+      "description": "Insufficient permissions to update event",
+      "message": "Missing required permission: Calendars.ReadWrite. Please re-authenticate with proper permissions."
+    }
+  ],
+  "examples": [
+    {
+      "description": "Remove a room from meeting and clear location",
+      "input": {
+        "eventId": "AAMkAGI2T...",
+        "roomEmail": "edi-l2-barajas@skyscanner.net"
+      },
+      "output": {
+        "success": true,
+        "message": "Room removed successfully: edi-l2-barajas@skyscanner.net",
+        "eventId": "AAMkAGI2T...",
+        "roomRemoved": "edi-l2-barajas@skyscanner.net",
+        "eventWebLink": "https://outlook.office.com/calendar/item/..."
+      }
+    },
+    {
+      "description": "Remove room but keep location field intact",
+      "input": {
+        "eventId": "AAMkAGI2T...",
+        "roomEmail": "gla-l1-highlands@skyscanner.net",
+        "clearLocation": false
+      }
+    },
+    {
+      "description": "Remove room from meeting that became virtual-only",
+      "input": {
+        "eventId": "AAMkAGI2T...",
+        "roomEmail": "bcn-l2-sagrada@skyscanner.net",
+        "clearLocation": true
+      }
+    }
+  ]
+}

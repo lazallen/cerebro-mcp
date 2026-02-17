@@ -14,6 +14,7 @@ Auto-generated from all feature plans. Last updated: 2026-01-22
 - File-based OAuth token storage (existing .tokens/ directory) (014-move-email-folder)
 - TypeScript 5.3.3 with Node.js 18+ + `@modelcontextprotocol/sdk ^1.25.3`, Microsoft Graph API v1.0 (015-meeting-response)
 - File-based OAuth token storage (existing `.tokens/` directory) (015-meeting-response)
+- File-based OAuth token storage (existing: `.tokens/` directory) (016-meeting-room-booking)
 
 - TypeScript 5.x with Node.js 18+ + @modelcontextprotocol/sdk, Node.js crypto (HMAC-SHA256), uuid (010-slack-message-actions)
 
@@ -33,9 +34,9 @@ npm test && npm run lint
 TypeScript 5.x with Node.js 18+: Follow standard conventions
 
 ## Recent Changes
+- 016-meeting-room-booking: Added TypeScript 5.3.3 with Node.js 18+ + `@modelcontextprotocol/sdk ^1.25.3`, Microsoft Graph API v1.0
 - 015-meeting-response: Added TypeScript 5.3.3 with Node.js 18+ + `@modelcontextprotocol/sdk ^1.25.3`, Microsoft Graph API v1.0
 - 014-move-email-folder: Added TypeScript 5.3.3 with Node.js 18+ + @modelcontextprotocol/sdk ^1.25.3, Microsoft Graph API v1.0 (existing)
-- 013-onenote-meeting-notes: Added TypeScript 5.3.3 (project standard)
 
 
 <!-- MANUAL ADDITIONS START -->

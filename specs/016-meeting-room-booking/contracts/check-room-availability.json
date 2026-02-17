@@ -1,0 +1,120 @@
+{
+  "name": "microsoft_check-room-availability",
+  "description": "Check availability for one or more meeting rooms during a specific time period. Returns availability status and conflict details for each room. Use this before booking to verify room is free.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "roomEmails": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Array of room email addresses to check (obtained from list-meeting-rooms). Can check up to 20 rooms in a single request.",
+        "minItems": 1,
+        "maxItems": 20,
+        "examples": [
+          ["edi-l2-barajas@skyscanner.net"],
+          ["edi-l2-barajas@skyscanner.net", "edi-l2-north-coast-500@skyscanner.net"]
+        ]
+      },
+      "startDateTime": {
+        "type": "string",
+        "format": "date-time",
+        "description": "Meeting start time in ISO 8601 format (e.g., '2026-02-05T14:00:00Z')",
+        "examples": ["2026-02-05T14:00:00Z", "2026-02-05T09:30:00+00:00"]
+      },
+      "endDateTime": {
+        "type": "string",
+        "format": "date-time",
+        "description": "Meeting end time in ISO 8601 format (e.g., '2026-02-05T15:00:00Z')",
+        "examples": ["2026-02-05T15:00:00Z", "2026-02-05T10:30:00+00:00"]
+      },
+      "timeZone": {
+        "type": "string",
+        "description": "IANA timezone for the meeting (optional, defaults to UTC)",
+        "default": "UTC",
+        "examples": ["UTC", "Europe/London", "America/New_York"]
+      }
+    },
+    "required": ["roomEmails", "startDateTime", "endDateTime"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "availability": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "roomEmail": {
+              "type": "string",
+              "description": "Room email address"
+            },
+            "roomName": {
+              "type": "string",
+              "description": "Room display name"
+            },
+            "isAvailable": {
+              "type": "boolean",
+              "description": "true if room is free during the entire time period, false if any conflicts"
+            },
+            "availabilityView": {
+              "type": "string",
+              "description": "Availability view string from Graph API (0=free, 1=tentative, 2=busy, 3=oof, 4=workingElsewhere)"
+            },
+            "conflicts": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "start": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "Conflict start time"
+                  },
+                  "end": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "Conflict end time"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": ["busy", "tentative", "oof", "workingElsewhere"],
+                    "description": "Conflict status"
+                  }
+                },
+                "required": ["start", "end", "status"]
+              },
+              "description": "List of conflicting bookings (empty if available)"
+            }
+          },
+          "required": ["roomEmail", "isAvailable"]
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "description": "Check if a single room is available for 1-hour meeting",
+      "input": {
+        "roomEmails": ["edi-l2-barajas@skyscanner.net"],
+        "startDateTime": "2026-02-05T14:00:00Z",
+        "endDateTime": "2026-02-05T15:00:00Z"
+      }
+    },
+    {
+      "description": "Check availability for multiple rooms in parallel",
+      "input": {
+        "roomEmails": [
+          "edi-l2-barajas@skyscanner.net",
+          "edi-l2-north-coast-500@skyscanner.net",
+          "edi-l3-loch-lomond@skyscanner.net"
+        ],
+        "startDateTime": "2026-02-05T09:00:00Z",
+        "endDateTime": "2026-02-05T10:00:00Z",
+        "timeZone": "Europe/London"
+      }
+    }
+  ]
+}
