@@ -63,3 +63,6 @@ debug/
 .tasks/
 data
 
+# Obsidian Vault
+context
+
