@@ -1,0 +1,71 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Calendar Review Task Configuration",
+  "description": "Configuration schema for calendar-review task type",
+  "type": "object",
+  "properties": {
+    "lookaheadDays": {
+      "type": "integer",
+      "description": "Number of days ahead to scan for meetings",
+      "minimum": 1,
+      "maximum": 30,
+      "default": 7,
+      "examples": [7, 14]
+    },
+    "notebookName": {
+      "type": "string",
+      "description": "OneNote notebook name for meeting pages",
+      "minLength": 1,
+      "maxLength": 128,
+      "default": "Meeting Notes",
+      "examples": ["Meeting Notes", "Work Meetings"]
+    },
+    "sectionName": {
+      "type": "string",
+      "description": "OneNote section name within notebook",
+      "minLength": 1,
+      "maxLength": 128,
+      "default": "Auto-Generated",
+      "examples": ["Auto-Generated", "Upcoming Meetings"]
+    },
+    "minHoursBefore": {
+      "type": "number",
+      "description": "Minimum hours before meeting to create page",
+      "minimum": 0,
+      "maximum": 168,
+      "default": 2,
+      "examples": [2, 24, 48]
+    },
+    "skipRecurring": {
+      "type": "boolean",
+      "description": "Whether to skip recurring meeting series",
+      "default": false,
+      "examples": [false, true]
+    },
+    "pageTemplate": {
+      "type": "string",
+      "description": "Markdown template for OneNote page (supports variables: {{title}}, {{date}}, {{time}}, {{attendees}})",
+      "minLength": 1,
+      "examples": [
+        "# {{title}}\n\n**Date**: {{date}}\n**Time**: {{time}}\n**Attendees**: {{attendees}}\n\n## Agenda\n\n## Notes\n\n## Action Items\n"
+      ]
+    }
+  },
+  "examples": [
+    {
+      "lookaheadDays": 7,
+      "notebookName": "Meeting Notes",
+      "sectionName": "Auto-Generated",
+      "minHoursBefore": 2,
+      "skipRecurring": false
+    },
+    {
+      "lookaheadDays": 14,
+      "notebookName": "Work",
+      "sectionName": "Meetings",
+      "minHoursBefore": 24,
+      "skipRecurring": true,
+      "pageTemplate": "# {{title}}\n\n**When**: {{date}} at {{time}}\n\n## Pre-Meeting Notes\n\n## Discussion\n\n## Decisions\n\n## Next Steps\n"
+    }
+  ]
+}
