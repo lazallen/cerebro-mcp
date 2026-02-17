@@ -934,6 +934,38 @@ export class MicrosoftService implements BaseService {
   }
 
   /**
+   * Get unread emails (public method for heartbeat email triage)
+   * Uses the same logic as listEmails but filters for unread only
+   */
+  public async getUnreadEmails(options?: { top?: number; folder?: string }): Promise<unknown[]> {
+    const result = await this.listEmails({
+      count: options?.top ?? 50,
+      folder: options?.folder ?? 'inbox',
+      unreadOnly: true, // Internal flag to filter unread
+    });
+    return ((result as any).emails ?? []) as unknown[];
+  }
+
+  /**
+   * Move an email to a target folder (public method for heartbeat email triage)
+   * @param emailId - Email message ID from Microsoft Graph
+   * @param folderPath - Target folder path (e.g., "Cerebro/Triaged")
+   * @param markAsRead - Whether to mark email as read (default: false)
+   * @returns Move operation result
+   */
+  public async moveEmail(
+    emailId: string,
+    folderPath: string,
+    markAsRead: boolean = false
+  ): Promise<unknown> {
+    return this.moveEmailMethod({
+      emailId,
+      folderPath,
+      markAsRead,
+    });
+  }
+
+  /**
    * List recent emails from specified folder
    * @param input - Tool input with optional count and folder parameters
    * @returns Object containing emails array and count
@@ -941,6 +973,7 @@ export class MicrosoftService implements BaseService {
   private async listEmails(input: Record<string, unknown>): Promise<unknown> {
     const count = Math.min((input['count'] as number | undefined) ?? 10, 50);
     const folder = (input['folder'] as string | undefined) ?? 'inbox';
+    const unreadOnly = input['unreadOnly'] as boolean | undefined;
 
     // Check if it's a well-known folder or special value
     const wellKnownName = this.mapToWellKnownFolder(folder);
@@ -959,13 +992,20 @@ export class MicrosoftService implements BaseService {
       endpoint = `/me/mailFolders/${folderId}/messages`;
     }
 
+    const params: Record<string, string> = {
+      $top: count.toString(),
+      $select: 'id,subject,from,receivedDateTime,bodyPreview,body,isRead',
+      $orderby: 'receivedDateTime desc',
+    };
+
+    // Add unread filter if requested
+    if (unreadOnly) {
+      params.$filter = 'isRead eq false';
+    }
+
     const response = await this.apiClient.request(endpoint, {
       method: 'GET',
-      params: {
-        $top: count.toString(),
-        $select: 'id,subject,from,receivedDateTime,bodyPreview,isRead',
-        $orderby: 'receivedDateTime desc',
-      },
+      params,
     });
 
     const data = response.data as { value?: unknown[] };

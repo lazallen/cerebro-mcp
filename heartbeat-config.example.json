@@ -1,0 +1,34 @@
+{
+  "rootDir": "./data",
+  "tasks": [
+    {
+      "id": "email-triage-hourly",
+      "name": "Hourly Email Triage",
+      "type": "email-triage",
+      "schedule": "0 * * * *",
+      "enabled": true,
+      "config": {
+        "maxEmails": 50,
+        "markAsRead": false,
+        "eventType": "email",
+        "llmTimeout": 30000,
+        "batchSize": 10
+      }
+    },
+    {
+      "id": "email-priority-15min",
+      "name": "Priority Email Triage (Every 15 Minutes)",
+      "type": "email-triage",
+      "schedule": "*/15 * * * *",
+      "enabled": false,
+      "config": {
+        "maxEmails": 10,
+        "markAsRead": true,
+        "eventType": "email-priority",
+        "filterFolder": "inbox/important",
+        "llmTimeout": 5000,
+        "batchSize": 5
+      }
+    }
+  ]
+}

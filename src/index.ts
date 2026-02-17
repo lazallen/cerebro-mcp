@@ -5,11 +5,13 @@
  */
 
 import * as http from 'http';
+import * as path from 'path';
 import { logger, globalConfig, ServiceRegistry } from './common';
 import { OAuthServer } from './auth-server';
 import { MCPServer } from './mcp-server';
 import { HealthCheckHandler } from './mcp-server/health-check';
 import { registerServices } from './mcp-server/service-registration';
+import { HeartbeatService } from './services/heartbeat/heartbeat-service';
 import type { BaseService } from './types/service';
 import type { BaseTokenStorage } from './common/base-token-storage';
 
@@ -17,6 +19,7 @@ let oauthServer: OAuthServer | undefined;
 let mcpServer: MCPServer | undefined;
 let mcpHttpServer: http.Server | undefined;
 let healthCheckHandler: HealthCheckHandler | undefined;
+let heartbeatService: HeartbeatService | undefined;
 const serviceRegistry = new ServiceRegistry();
 
 async function main(): Promise<void> {
@@ -174,6 +177,50 @@ async function main(): Promise<void> {
     // Determine OAuth protocol
     const protocol = oauthServer['protocol'] || 'http';
 
+    // 6. Start heartbeat service if configured
+    const heartbeatConfigPath = process.env.HEARTBEAT_CONFIG_FILE;
+    if (heartbeatConfigPath) {
+      try {
+        const absolutePath = path.isAbsolute(heartbeatConfigPath)
+          ? heartbeatConfigPath
+          : path.resolve(process.cwd(), heartbeatConfigPath);
+
+        logger.info({
+          operation: 'heartbeat_init',
+          configPath: absolutePath,
+          msg: 'Initializing heartbeat service',
+        });
+
+        // Get Microsoft and LocalFoundry services for task dependencies
+        const microsoftService = serviceRegistry.get('microsoft');
+        const localFoundryService = serviceRegistry.get('local');
+
+        heartbeatService = new HeartbeatService(absolutePath, {
+          graphClient: microsoftService,
+          lfClient: localFoundryService,
+        });
+
+        await heartbeatService.start();
+
+        logger.info({
+          operation: 'heartbeat_started',
+          msg: 'Heartbeat service started successfully',
+        });
+      } catch (error) {
+        // Don't fail server startup if heartbeat fails
+        logger.warn({
+          operation: 'heartbeat_start_error',
+          error: error instanceof Error ? error.message : String(error),
+          msg: 'Failed to start heartbeat service - continuing without it',
+        });
+      }
+    } else {
+      logger.info({
+        operation: 'heartbeat_disabled',
+        msg: 'Heartbeat service not configured (HEARTBEAT_CONFIG_FILE not set)',
+      });
+    }
+
     logger.info({
       operation: 'servers_ready',
       oauthPort: globalConfig.authServerPort,
@@ -184,6 +231,7 @@ async function main(): Promise<void> {
       mcpProtocol: 'http',
       mcpEndpoint: `http://localhost:${globalConfig.mcpServerPort}/mcp`,
       servicesCount: serviceRegistry.list().length,
+      heartbeatEnabled: !!heartbeatService,
       msg: 'All servers ready. OAuth (HTTPS) on :3333, MCP (HTTP) on :3334',
     });
   } catch (error) {
@@ -269,6 +317,22 @@ async function shutdown(): Promise<void> {
     } catch (error) {
       logger.error({
         operation: 'oauth_shutdown_error',
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  // Stop heartbeat service
+  if (heartbeatService) {
+    try {
+      await heartbeatService.stop();
+      logger.info({
+        operation: 'heartbeat_stopped',
+        msg: 'Heartbeat service stopped',
+      });
+    } catch (error) {
+      logger.error({
+        operation: 'heartbeat_shutdown_error',
         error: error instanceof Error ? error.message : String(error),
       });
     }

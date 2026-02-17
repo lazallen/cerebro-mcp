@@ -21,6 +21,7 @@ coverage/
 .env
 .env.local
 .env.*.local
+heartbeat-config.json
 
 # Logs
 logs/
@@ -60,3 +61,8 @@ debug/
 
 # Message action storage (runtime data)
 .tasks/
+data
+
+# Obsidian Vault
+context
+

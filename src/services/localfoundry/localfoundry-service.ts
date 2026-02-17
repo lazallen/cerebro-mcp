@@ -350,6 +350,30 @@ export class LocalFoundryService implements BaseService {
   }
 
   /**
+   * Public method to send a chat completion request
+   * For use by heartbeat tasks and other internal services
+   * @param messages - Array of chat messages
+   * @param options - Optional request parameters
+   * @returns Generated text content from the assistant
+   */
+  public async chatCompletion(
+    messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
+    options?: {
+      temperature?: number;
+      max_tokens?: number;
+    }
+  ): Promise<string> {
+    logger.debug({
+      operation: 'localfoundry_chat_completion_public',
+      messageCount: messages.length,
+      temperature: options?.temperature,
+      maxTokens: options?.max_tokens,
+    });
+
+    return this.client.chatCompletion(messages, options);
+  }
+
+  /**
    * Validate and parse summarize input
    */
   private validateSummarizeInput(input: unknown): SummarizeInput {
