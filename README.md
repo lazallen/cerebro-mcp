@@ -234,10 +234,11 @@ npm run start:pretty
 
 ## Available Tools
 
-**Microsoft 365** (12 tools):
+**Microsoft 365** (16 tools):
 - **Auth**: authenticate, check-auth-status
 - **Email**: list-emails (with folder filtering), read-email, send-email, move-email
 - **Calendar**: list-events, get-event, create-event, update-event, delete-event, find-meeting-times
+- **Room Booking**: list-meeting-rooms, check-room-availability, book-meeting-room, remove-meeting-room
 
 ### Microsoft 365 Email Tools
 
@@ -382,6 +383,194 @@ Returns on success:
 - **INVALID_INPUT**: Missing required parameters or invalid folder path format
 
 **Note**: Use `list-mail-folders` to discover available folders before moving. The same folder resolution logic from `list-emails` applies to nested paths.
+
+### Microsoft 365 Room Booking Tools
+
+**Prerequisites**: Requires `Place.Read.All` permission for room discovery. Automatically requested during OAuth authentication.
+
+**`list-meeting-rooms`** - Search for meeting rooms by office, capacity, and amenities
+- **building** (optional): Filter by office location (e.g., "Edinburgh", "Glasgow", "Barcelona", "London")
+- **minCapacity** (optional): Minimum room capacity (system applies 20% buffer automatically)
+- **floorNumber** (optional): Filter by specific floor number
+- **requiresVideo** (optional): Filter to rooms with video conferencing equipment
+- **requiresAudio** (optional): Filter to rooms with audio equipment
+- **wheelchairAccessible** (optional): Filter to ADA-compliant rooms
+
+Example:
+```typescript
+// Find rooms in Edinburgh with capacity for 6+ people
+{
+  building: "Edinburgh",
+  minCapacity: 6,
+  requiresVideo: true
+}
+```
+
+**`check-room-availability`** - Check availability for one or more rooms during a time period
+- **roomEmails** (required): Array of room email addresses (from list-meeting-rooms)
+- **startDateTime** (required): Meeting start time (ISO 8601 format)
+- **endDateTime** (required): Meeting end time (ISO 8601 format)
+- **timeZone** (optional, default: "UTC"): IANA timezone
+
+Example:
+```typescript
+{
+  roomEmails: ["edi-l2-barajas@company.com"],
+  startDateTime: "2026-02-05T14:00:00Z",
+  endDateTime: "2026-02-05T15:00:00Z"
+}
+```
+
+**`book-meeting-room`** - Add a room to an existing calendar event
+- **eventId** (required): Calendar event ID (from list-events)
+- **roomEmail** (required): Room email address to book
+- **roomName** (optional): Room display name (for location field)
+- **updateLocation** (optional, default: true): Update event location field
+- **verifyAvailability** (optional, default: true): Check availability before booking
+
+Example:
+```typescript
+{
+  eventId: "AAMkAGI2T...",
+  roomEmail: "edi-l2-barajas@company.com",
+  roomName: "EDI-L2 Barajas"
+}
+```
+
+**`remove-meeting-room`** - Remove a room booking from an event
+- **eventId** (required): Calendar event ID
+- **roomEmail** (required): Room email address to remove
+- **clearLocation** (optional, default: true): Clear event location field
+
+#### Manual Room Booking Workflow
+
+For ad-hoc room search and booking outside automated workflows:
+
+**Example: Find and book a specific room**
+```typescript
+// 1. Search for rooms by specific criteria
+const rooms = await listMeetingRooms({
+  building: "Edinburgh",
+  floorNumber: 2,
+  minCapacity: 10,
+  requiresVideo: true,
+  wheelchairAccessible: true
+});
+// Returns: [{ id, emailAddress, displayName, capacity, videoDeviceName, ... }]
+
+// 2. Check availability for top candidates
+const availability = await checkRoomAvailability({
+  roomEmails: rooms.slice(0, 5).map(r => r.emailAddress),
+  startDateTime: "2026-02-05T14:00:00Z",
+  endDateTime: "2026-02-05T15:00:00Z"
+});
+// Returns: [{ roomEmail, isAvailable, conflicts: [...] }]
+
+// 3. Book first available room
+const availableRoom = availability.find(a => a.isAvailable);
+await bookMeetingRoom({
+  eventId: "AAMkAGI2T...",
+  roomEmail: availableRoom.roomEmail,
+  roomName: "EDI-L2 Barajas"
+});
+// Returns: { success: true, message: "Room booked successfully: EDI-L2 Barajas" }
+```
+
+**Example: Search by amenities**
+```typescript
+// Find accessible rooms with audio/video equipment
+const accessibleRooms = await listMeetingRooms({
+  building: "Glasgow",
+  requiresVideo: true,
+  requiresAudio: true,
+  wheelchairAccessible: true
+});
+
+// Find large conference rooms
+const largeRooms = await listMeetingRooms({
+  building: "Barcelona",
+  minCapacity: 20  // System applies 20% buffer: 20 → 24 capacity minimum
+});
+```
+
+**Example: Remove and rebook rooms**
+```typescript
+// Meeting becomes virtual - remove room
+await removeMeetingRoom({
+  eventId: "AAMkAGI2T...",
+  roomEmail: "edi-l2-barajas@company.com",
+  clearLocation: true  // Clears location field
+});
+// Returns: { success: true, message: "Room removed successfully: edi-l2-barajas@company.com" }
+// Note: Virtual meeting link (Teams/Zoom) is preserved
+
+// Rebook different room (plans changed)
+await removeMeetingRoom({
+  eventId: "AAMkAGI2T...",
+  roomEmail: "edi-l2-old-room@company.com",
+  clearLocation: false  // Preserve custom location text
+});
+
+await bookMeetingRoom({
+  eventId: "AAMkAGI2T...",
+  roomEmail: "edi-l3-new-room@company.com",
+  roomName: "EDI-L3 New Room"
+});
+```
+
+#### Automatic Room Booking Workflow
+
+The room booking system includes intelligent automation features for calendar triage workflows:
+
+**Office Location Detection** - Automatically detects user's office location from calendar events:
+- Searches for "Working from [Office]" calendar events
+- Checks event location fields for office names (Edinburgh, Glasgow, Barcelona, London)
+- Falls back to user prompt when auto-detection fails
+
+**Category-Based Room Detection** - Only offers room booking for meetings with explicit indicators:
+- **Opt-in categories**: "Office", "In-Person", "Room Needed"
+- Skips room booking by default for meetings without these categories
+- Prevents unnecessary room booking prompts for virtual meetings
+
+**Smart Room Selection** - Automatically selects optimal room using:
+- **Capacity buffer**: 20% buffer rounded up (e.g., 5 attendees → 6 capacity min, 8 attendees → 10 capacity min)
+- **Smallest fit**: Prioritizes smallest available room that accommodates attendee count
+- **Video priority**: Prefers rooms with video equipment for meetings with remote attendees
+- **Availability check**: Verifies room is free before booking, suggests alternatives when conflicts detected
+
+**Example Automatic Workflow**:
+```typescript
+// 1. Detect office from today's calendar
+const events = await listEvents({ startDate: "2026-02-05", endDate: "2026-02-05" });
+const office = detectOfficeLocation(events); // "Edinburgh"
+
+// 2. Find meetings needing rooms (categories: ["Office"])
+const meeting = events.find(e => needsRoomBooking(e.categories));
+const attendeeCount = meeting.attendees.length; // 5 people
+
+// 3. Search for suitable rooms
+const rooms = await listMeetingRooms({
+  building: office,
+  minCapacity: 6, // 5 * 1.2 = 6
+  requiresVideo: meeting.onlineMeeting ? true : false
+});
+
+// 4. Check availability
+const availability = await checkRoomAvailability({
+  roomEmails: rooms.map(r => r.emailAddress),
+  startDateTime: meeting.start.dateTime,
+  endDateTime: meeting.end.dateTime
+});
+
+// 5. Select and book best room
+const availableRooms = rooms.filter(r => availability[r.emailAddress].isAvailable);
+const bestRoom = selectBestRoom(availableRooms, attendeeCount, hasRemoteAttendees);
+await bookMeetingRoom({
+  eventId: meeting.id,
+  roomEmail: bestRoom.emailAddress,
+  roomName: bestRoom.displayName
+});
+```
 
 **Slack** (16 tools):
 - **Auth**: authenticate, check-auth-status

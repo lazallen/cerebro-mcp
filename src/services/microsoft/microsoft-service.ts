@@ -11,8 +11,15 @@ import { MicrosoftTokenStorage } from './token-storage';
 import { MicrosoftApiClient } from './api-client';
 import { OneNoteClient } from './onenote-client';
 import { EventResponseClient } from './event-response-client';
+import { RoomBookingClient } from './room-booking-client';
 import { createSectionWithPages as createSectionHandler, updatePage as updatePageHandler, getInkText as getInkTextHandler } from '../../mcp-server/handlers/onenote-tools';
 import { moveEmail as moveEmailHandler } from '../../mcp-server/handlers/email-move-tools';
+import {
+  listMeetingRooms as listMeetingRoomsHandler,
+  checkRoomAvailability as checkRoomAvailabilityHandler,
+  bookMeetingRoom as bookMeetingRoomHandler,
+  removeMeetingRoom as removeMeetingRoomHandler,
+} from '../../mcp-server/handlers/room-booking-tools';
 import type { SectionInput, PageUpdateInput } from '../../types/onenote';
 import type { InkToTextInput } from '../../types/inkml';
 import type { MoveEmailInput } from '../../types/email';
@@ -23,12 +30,14 @@ export class MicrosoftService implements BaseService {
   public readonly name: string;
   private readonly tokenStorage: MicrosoftTokenStorage;
   private readonly apiClient: MicrosoftApiClient;
+  private readonly roomBookingClient: RoomBookingClient;
 
   constructor(config: ServiceConfig) {
     this.config = config;
     this.name = config.name;
     this.tokenStorage = new MicrosoftTokenStorage(config);
     this.apiClient = new MicrosoftApiClient(this.tokenStorage);
+    this.roomBookingClient = new RoomBookingClient(this.apiClient);
 
     logger.info({
       operation: 'microsoft_service_created',
@@ -475,6 +484,158 @@ export class MicrosoftService implements BaseService {
           required: ['eventId', 'response'],
         },
         handler: this.respondToEvent.bind(this),
+      },
+
+      // Room Booking Tools
+      {
+        name: 'list-meeting-rooms',
+        description:
+          'List available meeting rooms filtered by office location, capacity, and amenities. Returns room details including email address (required for booking), capacity, equipment, and accessibility information.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            building: {
+              type: 'string',
+              description:
+                'Filter by office location/building name (e.g., "Edinburgh", "Glasgow", "Barcelona", "London")',
+            },
+            minCapacity: {
+              type: 'number',
+              description:
+                'Minimum room capacity required (number of seats). System automatically applies 20% buffer rounded up (e.g., 5 attendees requires 6 capacity)',
+              minimum: 1,
+              maximum: 1000,
+            },
+            floorNumber: {
+              type: 'number',
+              description: 'Filter by specific floor number (optional)',
+            },
+            requiresVideo: {
+              type: 'boolean',
+              description:
+                'Filter to rooms with video conferencing equipment (default: false)',
+            },
+            requiresAudio: {
+              type: 'boolean',
+              description: 'Filter to rooms with audio equipment (default: false)',
+            },
+            wheelchairAccessible: {
+              type: 'boolean',
+              description:
+                'Filter to ADA-compliant wheelchair accessible rooms (default: false)',
+            },
+            tags: {
+              type: 'array',
+              items: {
+                type: 'string',
+              },
+              description: 'Filter by amenity tags (e.g., ["whiteboard", "projector"])',
+            },
+          },
+        },
+        handler: this.listMeetingRooms.bind(this),
+      },
+      {
+        name: 'check-room-availability',
+        description:
+          'Check availability for one or more meeting rooms during a specific time period. Returns availability status and conflict details for each room. Use this before booking to verify room is free.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            roomEmails: {
+              type: 'array',
+              items: {
+                type: 'string',
+              },
+              description:
+                'Array of room email addresses to check (obtained from list-meeting-rooms). Can check up to 20 rooms in a single request.',
+              minItems: 1,
+              maxItems: 20,
+            },
+            startDateTime: {
+              type: 'string',
+              description:
+                'Meeting start time in ISO 8601 format (e.g., "2026-02-05T14:00:00Z")',
+            },
+            endDateTime: {
+              type: 'string',
+              description:
+                'Meeting end time in ISO 8601 format (e.g., "2026-02-05T15:00:00Z")',
+            },
+            timeZone: {
+              type: 'string',
+              description: 'IANA timezone for the meeting (optional, defaults to UTC)',
+              default: 'UTC',
+            },
+          },
+          required: ['roomEmails', 'startDateTime', 'endDateTime'],
+        },
+        handler: this.checkRoomAvailability.bind(this),
+      },
+      {
+        name: 'book-meeting-room',
+        description:
+          'Add a meeting room to an existing calendar event. Adds room as resource attendee and updates event location. IMPORTANT: Always check availability first using check-room-availability to prevent double-bookings.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            eventId: {
+              type: 'string',
+              description: 'Calendar event ID (obtained from list-events or create-event)',
+            },
+            roomEmail: {
+              type: 'string',
+              description:
+                'Room email address to book (obtained from list-meeting-rooms)',
+            },
+            roomName: {
+              type: 'string',
+              description:
+                'Room display name (optional, used for location field). If not provided, roomEmail is used.',
+            },
+            updateLocation: {
+              type: 'boolean',
+              description:
+                'Whether to update the event location field with room name (default: true)',
+              default: true,
+            },
+            verifyAvailability: {
+              type: 'boolean',
+              description:
+                'Whether to check room availability before booking (default: true). Set to false only if you\'ve already verified availability.',
+              default: true,
+            },
+          },
+          required: ['eventId', 'roomEmail'],
+        },
+        handler: this.bookMeetingRoom.bind(this),
+      },
+      {
+        name: 'remove-meeting-room',
+        description:
+          'Remove a meeting room booking from an existing calendar event. Removes room from resource attendees and optionally clears location field. Use this when meeting becomes virtual-only or plans change.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            eventId: {
+              type: 'string',
+              description: 'Calendar event ID (obtained from list-events)',
+            },
+            roomEmail: {
+              type: 'string',
+              description:
+                'Room email address to remove (must match existing resource attendee)',
+            },
+            clearLocation: {
+              type: 'boolean',
+              description:
+                'Whether to clear the event location field if it matches the room name (default: true)',
+              default: true,
+            },
+          },
+          required: ['eventId', 'roomEmail'],
+        },
+        handler: this.removeMeetingRoom.bind(this),
       },
 
       // OneNote Tools
@@ -1432,6 +1593,38 @@ export class MicrosoftService implements BaseService {
       default:
         throw new Error(`Invalid response type: ${response}`);
     }
+  }
+
+  /**
+   * List meeting rooms
+   */
+  private async listMeetingRooms(input: Record<string, unknown>): Promise<unknown> {
+    return listMeetingRoomsHandler(this.roomBookingClient, input as any);
+  }
+
+  /**
+   * Check room availability
+   */
+  private async checkRoomAvailability(
+    input: Record<string, unknown>
+  ): Promise<unknown> {
+    return checkRoomAvailabilityHandler(this.roomBookingClient, input as any);
+  }
+
+  /**
+   * Book meeting room
+   */
+  private async bookMeetingRoom(input: Record<string, unknown>): Promise<unknown> {
+    return bookMeetingRoomHandler(this.roomBookingClient, input as any);
+  }
+
+  /**
+   * Remove meeting room
+   */
+  private async removeMeetingRoom(
+    input: Record<string, unknown>
+  ): Promise<unknown> {
+    return removeMeetingRoomHandler(this.roomBookingClient, input as any);
   }
 
   /**

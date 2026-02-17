@@ -1,0 +1,129 @@
+{
+  "name": "microsoft_list-meeting-rooms",
+  "description": "List available meeting rooms filtered by office location, capacity, and amenities. Returns room details including email address (required for booking), capacity, equipment, and accessibility information.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "building": {
+        "type": "string",
+        "description": "Filter by office location/building name (e.g., 'Edinburgh', 'Glasgow', 'Barcelona', 'London')",
+        "examples": ["Edinburgh", "Glasgow", "Barcelona"]
+      },
+      "minCapacity": {
+        "type": "number",
+        "description": "Minimum room capacity required (number of seats). System automatically applies 20% buffer rounded up (e.g., 5 attendees requires 6 capacity)",
+        "minimum": 1,
+        "maximum": 1000
+      },
+      "floorNumber": {
+        "type": "number",
+        "description": "Filter by specific floor number (optional)"
+      },
+      "requiresVideo": {
+        "type": "boolean",
+        "description": "Filter to rooms with video conferencing equipment (default: false)"
+      },
+      "requiresAudio": {
+        "type": "boolean",
+        "description": "Filter to rooms with audio equipment (default: false)"
+      },
+      "wheelchairAccessible": {
+        "type": "boolean",
+        "description": "Filter to ADA-compliant wheelchair accessible rooms (default: false)"
+      },
+      "tags": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Filter by amenity tags (e.g., ['whiteboard', 'projector'])"
+      }
+    },
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "rooms": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "Room unique identifier"
+            },
+            "emailAddress": {
+              "type": "string",
+              "description": "Room email address (use this for booking)"
+            },
+            "displayName": {
+              "type": "string",
+              "description": "Room display name"
+            },
+            "building": {
+              "type": "string",
+              "description": "Building/office location"
+            },
+            "floorNumber": {
+              "type": "number",
+              "description": "Floor number"
+            },
+            "capacity": {
+              "type": "number",
+              "description": "Maximum room capacity"
+            },
+            "videoDeviceName": {
+              "type": "string",
+              "description": "Video equipment name (e.g., 'Teams Rooms')"
+            },
+            "audioDeviceName": {
+              "type": "string",
+              "description": "Audio equipment name"
+            },
+            "isWheelchairAccessible": {
+              "type": "boolean",
+              "description": "ADA wheelchair accessible"
+            },
+            "tags": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Amenity tags"
+            }
+          },
+          "required": ["id", "emailAddress", "displayName", "capacity"]
+        }
+      },
+      "count": {
+        "type": "number",
+        "description": "Total number of rooms returned"
+      }
+    }
+  },
+  "examples": [
+    {
+      "description": "Find all rooms in Edinburgh office with capacity for 6+ people",
+      "input": {
+        "building": "Edinburgh",
+        "minCapacity": 6
+      }
+    },
+    {
+      "description": "Find wheelchair accessible rooms with video equipment in Glasgow",
+      "input": {
+        "building": "Glasgow",
+        "requiresVideo": true,
+        "wheelchairAccessible": true
+      }
+    },
+    {
+      "description": "Find all rooms on floor 2 in Barcelona office",
+      "input": {
+        "building": "Barcelona",
+        "floorNumber": 2
+      }
+    }
+  ]
+}
