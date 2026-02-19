@@ -198,6 +198,8 @@ async function main(): Promise<void> {
         heartbeatService = new HeartbeatService(absolutePath, {
           graphClient: microsoftService,
           lfClient: localFoundryService,
+          microsoftService: microsoftService,
+          rootDir: process.env.ROOT_DIR || './context',
         });
 
         await heartbeatService.start();

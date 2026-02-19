@@ -133,13 +133,14 @@ export class ConfigLoader {
     }
 
     // Validate task type enum
-    const supportedTypes = ['email-triage', 'calendar-review'];
+    const supportedTypes = ['email-triage', 'calendar-review', 'journal-triage'];
     if (!supportedTypes.includes(t.type as string)) {
       throw new Error(
         `Invalid task configuration for "${t.id}": type "${t.type}" is not supported.\n\n` +
         `Supported task types:\n` +
         `- "email-triage": Process unread emails with LLM action item extraction\n` +
-        `- "calendar-review": Create OneNote pages for upcoming meetings (coming soon)\n\n` +
+        `- "calendar-review": Create OneNote pages for upcoming meetings (coming soon)\n` +
+        `- "journal-triage": Sync calendar events to markdown journal entries with OneNote integration\n\n` +
         `Current value: "${t.type}"`
       );
     }

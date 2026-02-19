@@ -16,6 +16,8 @@ export function createTaskRegistry(dependencies?: {
   graphClient?: any;
   lfClient?: any;
   eventsDir?: string;
+  microsoftService?: any;
+  rootDir?: string;
 }): TaskRegistry {
   const registry: TaskRegistry = new Map();
 
@@ -30,7 +32,10 @@ export function createTaskRegistry(dependencies?: {
     hasGraphClient: !!dependencies?.graphClient,
     hasLfClient: !!dependencies?.lfClient,
     hasEventsDir: !!dependencies?.eventsDir,
+    hasMicrosoftService: !!dependencies?.microsoftService,
+    hasRootDir: !!dependencies?.rootDir,
     eventsDir: dependencies?.eventsDir,
+    rootDir: dependencies?.rootDir,
     message: 'Task registry dependencies check',
   });
 
@@ -56,6 +61,31 @@ export function createTaskRegistry(dependencies?: {
         taskType: 'email-triage',
         error: (error as Error).message,
         message: 'Failed to register email-triage task handler',
+      });
+    }
+  }
+
+  // Register journal-triage task if dependencies are provided
+  if (dependencies?.microsoftService && dependencies?.rootDir) {
+    try {
+      const { JournalTriageTask } = require('./journal-triage-task');
+      const journalTriageHandler = new JournalTriageTask(
+        dependencies.microsoftService,
+        dependencies.rootDir
+      );
+      registry.set('journal-triage', journalTriageHandler);
+
+      logger.debug({
+        operation: 'task_handler_registered',
+        taskType: 'journal-triage',
+        message: 'Registered journal-triage task handler',
+      });
+    } catch (error) {
+      logger.warn({
+        operation: 'task_handler_registration_error',
+        taskType: 'journal-triage',
+        error: (error as Error).message,
+        message: 'Failed to register journal-triage task handler',
       });
     }
   }

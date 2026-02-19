@@ -105,3 +105,23 @@ export interface CalendarReviewConfig {
   /** Markdown template for OneNote page */
   pageTemplate?: string;
 }
+
+/**
+ * Journal triage task configuration
+ */
+export interface JournalTriageConfig {
+  /** Number of days ahead to process calendar events (default: 7) */
+  lookaheadDays?: number;
+
+  /** Root directory for journal storage relative to rootDir (default: "areas/journal") */
+  journalDir?: string;
+
+  /** Whether to create/update OneNote pages (default: false) */
+  createOneNotePages?: boolean;
+
+  /** OneNote section naming format (default: "YYYY-MM Meetings") */
+  oneNoteSectionFormat?: string;
+
+  /** Only create journal entries for workdays (Monday-Friday) (default: false) */
+  workdaysOnly?: boolean;
+}
