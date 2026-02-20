@@ -947,6 +947,44 @@ export class MicrosoftService implements BaseService {
   }
 
   /**
+   * Fetch emails for ingestion into the policy pipeline.
+   * Selects all fields required by EmailIngestionTask, including
+   * hasAttachments, conversationId, internetMessageId, toRecipients, and flag.
+   */
+  public async getEmailsForIngestion(options?: {
+    count?: number;
+    folder?: string;
+  }): Promise<unknown[]> {
+    const count = Math.min(options?.count ?? 50, 50);
+    const folder = options?.folder ?? 'inbox';
+
+    const wellKnownName = this.mapToWellKnownFolder(folder);
+    let endpoint: string;
+    if (wellKnownName === null) {
+      endpoint = '/me/messages';
+    } else if (wellKnownName !== undefined) {
+      endpoint = `/me/mailFolders/${wellKnownName}/messages`;
+    } else {
+      const folderId = await this.resolveFolderName(folder);
+      endpoint = `/me/mailFolders/${folderId}/messages`;
+    }
+
+    const response = await this.apiClient.request(endpoint, {
+      method: 'GET',
+      params: {
+        $top: count.toString(),
+        $select:
+          'id,internetMessageId,conversationId,subject,from,toRecipients,receivedDateTime,body,bodyPreview,isRead,hasAttachments,flag',
+        $filter: 'isRead eq false',
+        $orderby: 'receivedDateTime desc',
+      },
+    });
+
+    const data = response.data as { value?: unknown[] };
+    return data.value ?? [];
+  }
+
+  /**
    * Move an email to a target folder (public method for heartbeat email triage)
    * @param emailId - Email message ID from Microsoft Graph
    * @param folderPath - Target folder path (e.g., "Cerebro/Triaged")
@@ -962,6 +1000,61 @@ export class MicrosoftService implements BaseService {
       emailId,
       folderPath,
       markAsRead,
+    });
+  }
+
+  /**
+   * Mark an email message as read or unread.
+   * @param messageId - Graph message ID
+   * @param isRead - true to mark read, false to mark unread (default: true)
+   */
+  public async markEmailRead(messageId: string, isRead = true): Promise<void> {
+    await this.apiClient.request(`/me/messages/${messageId}`, {
+      method: 'PATCH',
+      body: { isRead },
+    });
+  }
+
+  /**
+   * Fetch the raw HTML body of an email message.
+   * Used by the executor to extract URLs from Confluence notification emails.
+   * @param messageId - Graph message ID
+   * @returns HTML body string (empty string if unavailable)
+   */
+  public async getEmailBodyHtml(messageId: string): Promise<string> {
+    const response = await this.apiClient.request(`/me/messages/${messageId}`, {
+      method: 'GET',
+      params: { $select: 'body' },
+    });
+    const data = response.data as { body?: { content?: string; contentType?: string } };
+    return data.body?.content ?? '';
+  }
+
+  /**
+   * Apply Outlook categories to an email message.
+   * Replaces any existing categories on the message.
+   * @param messageId - Graph message ID
+   * @param categories - Category names to apply (e.g. ["Triage/Scheduling"])
+   */
+  public async applyCategories(messageId: string, categories: string[]): Promise<void> {
+    await this.apiClient.request(`/me/messages/${messageId}`, {
+      method: 'PATCH',
+      body: { categories },
+    });
+  }
+
+  /**
+   * Set the follow-up flag status on an email message.
+   * @param messageId - Graph message ID
+   * @param flagStatus - One of 'flagged', 'notFlagged', 'complete'
+   */
+  public async setEmailFlag(
+    messageId: string,
+    flagStatus: 'flagged' | 'notFlagged' | 'complete' = 'flagged'
+  ): Promise<void> {
+    await this.apiClient.request(`/me/messages/${messageId}`, {
+      method: 'PATCH',
+      body: { flag: { flagStatus } },
     });
   }
 

@@ -331,8 +331,6 @@ export class JournalTriageTask implements TaskHandler {
             date: dateKey,
             day: new Date(dateKey).toLocaleDateString('en-US', { weekday: 'long' }),
             type: 'daily-planning',
-            'energy-level': 7,
-            'energy-description': 'Ready to start the day',
           },
           meetings: [],
           rawContent: '',
@@ -652,8 +650,6 @@ export class JournalTriageTask implements TaskHandler {
               date: dateKey,
               day: date.toLocaleDateString('en-US', { weekday: 'long' }),
               type: 'daily-planning',
-              'energy-level': 7,
-              'energy-description': 'Ready to start the day',
             },
             meetings: [],
             rawContent: '',
@@ -1131,4 +1127,5 @@ export class JournalTriageTask implements TaskHandler {
     // Default to not retrying unknown errors
     return false;
   }
+
 }

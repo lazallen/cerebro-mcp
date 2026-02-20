@@ -1,0 +1,22 @@
+{
+  "messageId": "m_newsletter_1",
+  "conversationId": "c_newsletter_1",
+  "internetMessageId": "<newsletter1@acme.example>",
+  "from": { "name": "ACME Weekly", "email": "news@acme.example" },
+  "to": ["stuart@example.com"],
+  "cc": [],
+  "subject": "ACME Weekly — Top tips for February",
+  "receivedDateTime": "2026-02-19T07:55:00Z",
+  "bodyPreview": "This week: product updates, tips, and community highlights… Unsubscribe here.",
+  "bodyText": "Hello! … Unsubscribe: https://acme.example/unsubscribe …",
+  "signals": {
+    "isAutomated": true,
+    "isBulk": true,
+    "hasUnsubscribe": true,
+    "hasAttachments": false,
+    "mentionsMoney": false,
+    "mentionsMeeting": false,
+    "asksForAction": false,
+    "prioritySender": false
+  }
+}

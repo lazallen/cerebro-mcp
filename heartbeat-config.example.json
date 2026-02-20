@@ -68,6 +68,27 @@
         "createOneNotePages": true,
         "workdaysOnly": true
       }
+    },
+    {
+      "id": "email-ingestion-hourly",
+      "name": "Hourly Email Ingestion (Feature 019)",
+      "type": "email-ingestion",
+      "schedule": "5 * * * *",
+      "enabled": false,
+      "config": {
+        "maxEmails": 50,
+        "folder": "inbox"
+      }
+    },
+    {
+      "id": "policy-pipeline-hourly",
+      "name": "Hourly Policy Pipeline (Feature 019)",
+      "type": "policy-pipeline",
+      "schedule": "10 * * * *",
+      "enabled": false,
+      "config": {
+        "batchSize": 50
+      }
     }
   ]
 }

@@ -14,9 +14,9 @@ export interface JournalFrontmatter {
   /** Always "daily-planning" for daily journals */
   type: 'daily-planning';
   /** Morning energy level (1-10) */
-  'energy-level': number;
+  'energy-level'?: number;
   /** Morning energy description */
-  'energy-description': string;
+  'energy-description'?: string;
   /** Evening energy level (1-10) - optional */
   'end-energy-level'?: number;
   /** Evening energy description - optional */
