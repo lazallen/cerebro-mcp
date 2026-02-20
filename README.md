@@ -939,6 +939,86 @@ Expected behavior: Missed executions are skipped (not queued). System resumes at
 
 📚 **Complete guide:** [specs/017-task-heartbeat/quickstart.md](specs/017-task-heartbeat/quickstart.md)
 
+## Policy Engine (Triage Pipeline)
+
+The policy engine evaluates triage events against a YAML rule set and automatically classifies, routes, and actions them — creating tasks, filing receipts, queuing newsletters, and escalating uncertain items to human review.
+
+### How It Works
+
+1. **Ingestion tasks** (email-ingestion, journal-triage) write `TriageEvent` artifacts to `{rootDir}/system/triage/`
+2. **policy-pipeline task** loads the policy YAML, evaluates each event, and writes `PolicyDecision` artifacts to `{rootDir}/system/decisions/`
+3. **Actions** are executed per decision: tasks created, reading-pack entries appended, human queue items filed
+4. **Multi-pass enrichment**: uncertain events are sent to the local LLM (phi-4-mini) or Claude for deeper analysis, then re-evaluated
+
+### System Directory Layout
+
+```
+{rootDir}/system/
+  triage/           ← TriageEvent files (pending, enriched)
+  decisions/        ← PolicyDecision files per event
+  human/            ← HumanQueueItem files awaiting user input
+  runs/             ← Per-cycle run logs (summary + trace)
+  artifacts/
+    tasks/          ← Obsidian task notes (one per CREATE_TASK action)
+    reading-packs/  ← Daily reading-pack notes (appended per cycle)
+    drafts/         ← Draft replies awaiting approval
+```
+
+> **Note:** All directories are created automatically on first heartbeat run. Do not create them manually.
+
+### Configuration
+
+Add `email-ingestion` and `policy-pipeline` tasks to `heartbeat-config.json`:
+
+```json
+{
+  "rootDir": "./data",
+  "policyDir": "./policies",
+  "tasks": [
+    {
+      "id": "email-ingestion-hourly",
+      "name": "Hourly Email Ingestion",
+      "type": "email-ingestion",
+      "schedule": "5 * * * *",
+      "enabled": true,
+      "config": { "maxEmails": 50, "markAsRead": false }
+    },
+    {
+      "id": "policy-pipeline-hourly",
+      "name": "Hourly Policy Pipeline",
+      "type": "policy-pipeline",
+      "schedule": "10 * * * *",
+      "enabled": true,
+      "config": {}
+    }
+  ]
+}
+```
+
+The policy YAML lives at `{policyDir}/default-policy.yaml` (see [specs/019-policy-engine/contracts/default-policy.yaml](specs/019-policy-engine/contracts/default-policy.yaml) for a reference policy).
+
+### Human Queue Workflow
+
+When the policy engine cannot confidently classify an event, it creates a `HumanQueueItem` in `system/human/`:
+
+1. A `hq_YYYYMMDD_NNN.md` file appears with `status: pending` and a question
+2. Edit the file and set `status: resolved` with your `answer:` in the frontmatter
+3. On the next policy-pipeline run, the resolved item triggers re-evaluation of the parent event with your answer injected into the rule context
+
+### LLM Enrichment (Optional)
+
+| Tier | Model | Trigger |
+|------|-------|---------|
+| Local | phi-4-mini (LocalFoundry) | All `pending` events each cycle |
+| Cloud | Claude haiku | Events with a `claude_approval` item in `status: approved` |
+
+To enable Claude enrichment, set `ANTHROPIC_API_KEY` in `.env`. LocalFoundry enrichment works without any additional setup if LocalFoundry is running.
+
+**Docs:**
+- [docs/guides/policy-engine.md](docs/guides/policy-engine.md) — Setup, human queue workflow, reading packs, troubleshooting
+- [docs/guides/policy-rules.md](docs/guides/policy-rules.md) — YAML DSL reference, predicate operators, action types, examples
+- [docs/architecture/triage-pipeline.md](docs/architecture/triage-pipeline.md) — Pipeline stages, file formats, safety gates, idempotency
+
 ## LocalFoundry Integration
 
 LocalFoundry provides local LLM text processing without cloud services or authentication. Features include:

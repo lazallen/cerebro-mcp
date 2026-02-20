@@ -1,0 +1,32 @@
+{
+  "messageId": "m_fyi_1",
+  "conversationId": "c_fyi_1",
+  "internetMessageId": "<fyi1@company.com>",
+  "from": { "name": "Engineering Updates", "email": "eng-updates@company.com" },
+  "to": ["stuart@example.com"],
+  "cc": [],
+  "subject": "FYI: Incident postmortem published",
+  "receivedDateTime": "2026-02-18T16:40:00Z",
+  "bodyPreview": "Sharing the postmortem for yesterday’s incident. No action required.",
+  "bodyText": "Postmortem: … No action required.",
+  "signals": {
+    "isAutomated": true,
+    "isBulk": false,
+    "hasUnsubscribe": false,
+    "hasAttachments": false,
+    "mentionsMoney": false,
+    "mentionsMeeting": false,
+    "asksForAction": false,
+    "prioritySender": false
+  },
+  "extracted": {
+    "intent": "FYI",
+    "urgency": "SOMEDAY",
+    "confidence": 0.85,
+    "entities": {
+      "dates": ["2026-02-17"],
+      "people": [],
+      "amounts": []
+    }
+  }
+}

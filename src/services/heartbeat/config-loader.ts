@@ -84,6 +84,10 @@ export class ConfigLoader {
       throw new Error('Invalid heartbeat configuration: rootDir is required and must be a string');
     }
 
+    if (cfg.systemDir !== undefined && typeof cfg.systemDir !== 'string') {
+      throw new Error('Invalid heartbeat configuration: systemDir must be a string if provided');
+    }
+
     if (!Array.isArray(cfg.tasks)) {
       throw new Error('Invalid heartbeat configuration: tasks must be an array');
     }
@@ -133,14 +137,17 @@ export class ConfigLoader {
     }
 
     // Validate task type enum
-    const supportedTypes = ['email-triage', 'calendar-review', 'journal-triage'];
+    const supportedTypes = ['email-triage', 'journal-triage', 'email-ingestion', 'calendar-ingestion', 'policy-pipeline', 'executor'];
     if (!supportedTypes.includes(t.type as string)) {
       throw new Error(
         `Invalid task configuration for "${t.id}": type "${t.type}" is not supported.\n\n` +
         `Supported task types:\n` +
         `- "email-triage": Process unread emails with LLM action item extraction\n` +
-        `- "calendar-review": Create OneNote pages for upcoming meetings (coming soon)\n` +
-        `- "journal-triage": Sync calendar events to markdown journal entries with OneNote integration\n\n` +
+        `- "journal-triage": Sync calendar events to markdown journal entries with OneNote integration\n` +
+        `- "email-ingestion": Ingest emails as TriageEvent artifacts for the policy pipeline\n` +
+        `- "calendar-ingestion": Ingest calendar events as TriageEvent artifacts for the policy pipeline\n` +
+        `- "policy-pipeline": Evaluate triage events against policy rules and execute file-based actions\n` +
+        `- "executor": Execute Microsoft Graph API actions (MOVE, CATEGORY, FLAG) from pending decisions\n\n` +
         `Current value: "${t.type}"`
       );
     }

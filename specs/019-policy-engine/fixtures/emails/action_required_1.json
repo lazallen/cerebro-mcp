@@ -1,0 +1,22 @@
+{
+  "messageId": "m_action_1",
+  "conversationId": "c_action_1",
+  "internetMessageId": "<action1@company.com>",
+  "from": { "name": "Product Counterpart", "email": "product@company.com" },
+  "to": ["stuart@example.com"],
+  "cc": [],
+  "subject": "Request: review the rollout plan by Friday",
+  "receivedDateTime": "2026-02-19T08:30:00Z",
+  "bodyPreview": "Could you review the rollout plan and leave comments by Friday EOD?",
+  "bodyText": "Could you review the rollout plan and leave comments by Friday EOD? Link: …",
+  "signals": {
+    "isAutomated": false,
+    "isBulk": false,
+    "hasUnsubscribe": false,
+    "hasAttachments": false,
+    "mentionsMoney": false,
+    "mentionsMeeting": false,
+    "asksForAction": true,
+    "prioritySender": true
+  }
+}

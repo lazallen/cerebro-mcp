@@ -18,6 +18,8 @@ export function createTaskRegistry(dependencies?: {
   eventsDir?: string;
   microsoftService?: any;
   rootDir?: string;
+  /** Resolved system directory — use this instead of path.join(rootDir, 'system') */
+  systemDir?: string;
 }): TaskRegistry {
   const registry: TaskRegistry = new Map();
 
@@ -39,7 +41,37 @@ export function createTaskRegistry(dependencies?: {
     message: 'Task registry dependencies check',
   });
 
-  // Register email-triage task if dependencies are provided
+  // Resolve system directory once: prefer explicit systemDir, fall back to {rootDir}/system
+  const resolvedSystemDir: string | undefined =
+    dependencies?.systemDir ??
+    (dependencies?.rootDir ? require('path').join(dependencies.rootDir, 'system') : undefined);
+
+  // Register email-ingestion task (Feature 019 — signals only, no LLM/move)
+  if (dependencies?.graphClient && resolvedSystemDir) {
+    try {
+      const { EmailIngestionTask } = require('./email-ingestion-task');
+      const emailIngestionHandler = new EmailIngestionTask(
+        dependencies.graphClient,
+        resolvedSystemDir
+      );
+      registry.set('email-ingestion', emailIngestionHandler);
+
+      logger.debug({
+        operation: 'task_handler_registered',
+        taskType: 'email-ingestion',
+        message: 'Registered email-ingestion task handler',
+      });
+    } catch (error) {
+      logger.warn({
+        operation: 'task_handler_registration_error',
+        taskType: 'email-ingestion',
+        error: (error as Error).message,
+        message: 'Failed to register email-ingestion task handler',
+      });
+    }
+  }
+
+  // Register email-triage task (legacy — kept for backwards compatibility)
   if (dependencies?.graphClient && dependencies?.lfClient && dependencies?.eventsDir) {
     try {
       const { EmailTriageTask } = require('./email-triage-task');
@@ -62,6 +94,17 @@ export function createTaskRegistry(dependencies?: {
         error: (error as Error).message,
         message: 'Failed to register email-triage task handler',
       });
+    }
+  }
+
+  // Register calendar-ingestion task (feeds policy pipeline with calendar TriageEvents)
+  if (dependencies?.microsoftService && resolvedSystemDir) {
+    try {
+      const { CalendarIngestionTask } = require('./calendar-ingestion-task');
+      registry.set('calendar-ingestion', new CalendarIngestionTask(dependencies.microsoftService, resolvedSystemDir));
+      logger.debug({ operation: 'task_handler_registered', taskType: 'calendar-ingestion', message: 'Registered calendar-ingestion task handler' });
+    } catch (error) {
+      logger.warn({ operation: 'task_handler_registration_error', taskType: 'calendar-ingestion', error: (error as Error).message, message: 'Failed to register calendar-ingestion task handler' });
     }
   }
 
@@ -90,11 +133,90 @@ export function createTaskRegistry(dependencies?: {
     }
   }
 
-  // Register calendar-review task when implemented
-  // if (dependencies?.graphClient && dependencies?.oneNoteClient && dependencies?.eventsDir) {
-  //   const { CalendarReviewTask } = require('./calendar-review-task');
-  //   registry.set('calendar-review', new CalendarReviewTask(...));
-  // }
+
+  // Register policy-pipeline task (Feature 019 — full evaluation pipeline)
+  if (resolvedSystemDir) {
+    try {
+      const { PolicyPipelineTask } = require('./policy-pipeline-task');
+      const { LocalEnrichmentService } = require('../../enrichment/local-enrichment-service');
+      const { ClaudeEnrichmentService } = require('../../enrichment/claude-enrichment-service');
+
+      const systemDir = resolvedSystemDir;
+      const policyDir = resolvedSystemDir;
+
+      // Optionally wire local enrichment if lfClient is available
+      let localEnrichment: InstanceType<typeof LocalEnrichmentService> | undefined;
+      if (dependencies?.lfClient) {
+        localEnrichment = new LocalEnrichmentService(dependencies.lfClient);
+      }
+
+      // Optionally wire Claude enrichment if ANTHROPIC_API_KEY is set
+      let claudeEnrichment: InstanceType<typeof ClaudeEnrichmentService> | undefined;
+      const anthropicKey = process.env['ANTHROPIC_API_KEY'];
+      if (anthropicKey) {
+        claudeEnrichment = new ClaudeEnrichmentService(anthropicKey);
+      }
+
+      const pipelineHandler = new PolicyPipelineTask(
+        systemDir,
+        policyDir,
+        localEnrichment,
+        claudeEnrichment
+      );
+      registry.set('policy-pipeline', pipelineHandler);
+
+      logger.debug({
+        operation: 'task_handler_registered',
+        taskType: 'policy-pipeline',
+        hasLocalEnrichment: !!localEnrichment,
+        hasClaudeEnrichment: !!claudeEnrichment,
+        message: 'Registered policy-pipeline task handler',
+      });
+    } catch (error) {
+      logger.warn({
+        operation: 'task_handler_registration_error',
+        taskType: 'policy-pipeline',
+        error: (error as Error).message,
+        message: 'Failed to register policy-pipeline task handler',
+      });
+    }
+  }
+
+  // Register executor task — executes MOVE/CATEGORY/FLAG decisions via Microsoft Graph
+  if (dependencies?.microsoftService && resolvedSystemDir) {
+    try {
+      const { ExecutorTask } = require('./executor-task');
+
+      // Optionally wire Atlassian client if credentials are configured
+      let atlassianClient: unknown = undefined;
+      const atlassianBaseUrl = process.env['ATLASSIAN_BASE_URL'];
+      const atlassianEmail = process.env['ATLASSIAN_EMAIL'];
+      const atlassianApiToken = process.env['ATLASSIAN_API_TOKEN'];
+      if (atlassianBaseUrl && atlassianEmail && atlassianApiToken) {
+        const { AtlassianClient } = require('../../../lib/atlassian');
+        atlassianClient = new AtlassianClient(atlassianBaseUrl, atlassianEmail, atlassianApiToken);
+        logger.info({
+          operation: 'atlassian_client_init',
+          baseUrl: atlassianBaseUrl,
+          message: 'Atlassian client initialised for Confluence enrichment',
+        });
+      }
+
+      registry.set('executor', new ExecutorTask(dependencies.microsoftService, resolvedSystemDir, atlassianClient));
+      logger.debug({
+        operation: 'task_handler_registered',
+        taskType: 'executor',
+        message: 'Registered executor task handler',
+      });
+    } catch (error) {
+      logger.warn({
+        operation: 'task_handler_registration_error',
+        taskType: 'executor',
+        error: (error as Error).message,
+        message: 'Failed to register executor task handler',
+      });
+    }
+  }
 
   logger.info({
     operation: 'task_registry_created',

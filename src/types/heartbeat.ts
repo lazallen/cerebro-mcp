@@ -5,7 +5,13 @@
 /**
  * Task types supported by the heartbeat system
  */
-export type TaskType = 'email-triage' | 'calendar-review' | 'journal-triage';
+export type TaskType =
+  | 'email-triage'
+  | 'journal-triage'
+  | 'email-ingestion'
+  | 'calendar-ingestion'
+  | 'policy-pipeline'
+  | 'executor';
 
 /**
  * Configuration for a single scheduled task
@@ -34,8 +40,15 @@ export interface TaskConfig {
  * Root configuration for the heartbeat system
  */
 export interface HeartbeatConfig {
-  /** Root directory for event storage and logs */
+  /** Root directory for journal/vault storage (e.g. "./context") */
   rootDir: string;
+
+  /**
+   * Override directory for policy pipeline system artifacts (triage/, decisions/, etc.)
+   * Defaults to `{rootDir}/system` if not specified.
+   * Use this when rootDir points to an external vault but system artifacts should be repo-local.
+   */
+  systemDir?: string;
 
   /** Array of scheduled task definitions */
   tasks: TaskConfig[];

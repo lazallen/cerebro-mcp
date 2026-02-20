@@ -10,8 +10,10 @@ import { logger } from '../common';
 import { MicrosoftService } from '../services/microsoft';
 import { SlackService } from '../services/slack';
 import { LocalFoundryService } from '../services/localfoundry';
+import { TriageService } from '../services/triage';
 import { ServiceConfig } from '../types/service';
 import { loadLocalFoundryConfig } from '../common/config';
+import { ConfigLoader } from '../services/heartbeat/config-loader';
 
 /**
  * Check if Microsoft 365 credentials are configured
@@ -182,6 +184,36 @@ export async function registerServices(registry: ServiceRegistry): Promise<void>
         msg: 'Failed to register LocalFoundry service',
       });
     }
+  }
+
+  // Triage (always registered when heartbeat config is present)
+  try {
+    const heartbeatConfigPath = process.env['HEARTBEAT_CONFIG_FILE'] ?? './heartbeat-config.json';
+    const heartbeatConfig = await new ConfigLoader(heartbeatConfigPath).loadConfig();
+    const systemDir = heartbeatConfig.systemDir ?? `${heartbeatConfig.rootDir}/system`;
+
+    const triageConfig: ServiceConfig = {
+      name: 'triage',
+      displayName: 'Triage',
+      apiEndpoint: '',
+      oauth: { clientId: '', clientSecret: '', redirectUri: '', scopes: [], authEndpoint: '', tokenEndpoint: '' },
+      tokenStorePath: '',
+    };
+
+    const triageService = new TriageService(triageConfig, systemDir);
+    await registry.register(triageService);
+
+    logger.info({
+      service: 'triage',
+      systemDir,
+      msg: 'Triage service registered successfully',
+    });
+  } catch (error) {
+    logger.warn({
+      service: 'triage',
+      error: error instanceof Error ? error.message : String(error),
+      msg: 'Triage service not registered — heartbeat config missing or invalid',
+    });
   }
 
   // Log summary

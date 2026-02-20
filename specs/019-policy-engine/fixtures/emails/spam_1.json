@@ -1,0 +1,22 @@
+{
+  "messageId": "m_spam_1",
+  "conversationId": "c_spam_1",
+  "internetMessageId": "<spam1@cheap-deals.example>",
+  "from": { "name": "Totally Legit", "email": "promo@cheap-deals.example" },
+  "to": ["stuart@example.com"],
+  "cc": [],
+  "subject": "WINNER! Get rich fast — act now",
+  "receivedDateTime": "2026-02-19T01:01:00Z",
+  "bodyPreview": "You have been selected! Free money waiting. Click now.",
+  "bodyText": "…",
+  "signals": {
+    "isAutomated": true,
+    "isBulk": true,
+    "hasUnsubscribe": true,
+    "hasAttachments": false,
+    "mentionsMoney": true,
+    "mentionsMeeting": false,
+    "asksForAction": true,
+    "prioritySender": false
+  }
+}

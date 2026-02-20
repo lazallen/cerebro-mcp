@@ -54,10 +54,22 @@ export class HeartbeatService {
       // Load configuration
       const config = await this.configLoader.loadConfig();
 
-      // Ensure events directory exists
-      const eventsDir = `${config.rootDir}/events`;
+      // Ensure system/ subdirectories exist
+      // systemDir can be overridden in config to decouple it from rootDir
+      // (e.g. rootDir = "./context" for vault, systemDir = "./system" for repo-local artifacts)
+      const systemDir = config.systemDir ?? `${config.rootDir}/system`;
+      const eventsDir = `${systemDir}/triage`;
       const fs = await import('fs/promises');
-      await fs.mkdir(eventsDir, { recursive: true });
+      await Promise.all([
+        fs.mkdir(`${systemDir}/triage`, { recursive: true }),
+        fs.mkdir(`${systemDir}/decisions`, { recursive: true }),
+        fs.mkdir(`${systemDir}/human`, { recursive: true }),
+        fs.mkdir(`${systemDir}/runs`, { recursive: true }),
+        fs.mkdir(`${systemDir}/artifacts/tasks`, { recursive: true }),
+        fs.mkdir(`${systemDir}/artifacts/reading-packs`, { recursive: true }),
+        fs.mkdir(`${systemDir}/artifacts/drafts`, { recursive: true }),
+        fs.mkdir(`${systemDir}/context`, { recursive: true }),
+      ]);
 
       // Initialize task registry with dependencies
       this.taskRegistry = createTaskRegistry({
@@ -66,6 +78,7 @@ export class HeartbeatService {
         eventsDir,
         microsoftService: this.dependencies?.microsoftService,
         rootDir: config.rootDir,
+        systemDir,
       });
 
       // Initialize scheduler
@@ -245,12 +258,14 @@ export class HeartbeatService {
       this.scheduler.destroyAll();
 
       // Recreate task registry with dependencies (in case task implementations changed)
+      const reloadedSystemDir = newConfig.systemDir ?? `${newConfig.rootDir}/system`;
       this.taskRegistry = createTaskRegistry({
         graphClient: this.dependencies?.graphClient,
         lfClient: this.dependencies?.lfClient,
-        eventsDir: `${newConfig.rootDir}/events`,
+        eventsDir: `${reloadedSystemDir}/triage`,
         microsoftService: this.dependencies?.microsoftService,
         rootDir: newConfig.rootDir,
+        systemDir: reloadedSystemDir,
       });
 
       // Create new scheduler with updated registry

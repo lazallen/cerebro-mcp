@@ -1,0 +1,22 @@
+{
+  "messageId": "m_receipt_1",
+  "conversationId": "c_receipt_1",
+  "internetMessageId": "<receipt1@cloudvendor.example>",
+  "from": { "name": "Cloud Vendor", "email": "billing@cloudvendor.example" },
+  "to": ["stuart@example.com"],
+  "cc": [],
+  "subject": "Receipt for your payment — Invoice #INV-10492",
+  "receivedDateTime": "2026-02-18T18:12:00Z",
+  "bodyPreview": "Payment received. Total amount: £42.99. Invoice attached.",
+  "bodyText": "Thanks for your payment. Total: £42.99. Reference INV-10492.",
+  "signals": {
+    "isAutomated": true,
+    "isBulk": false,
+    "hasUnsubscribe": false,
+    "hasAttachments": true,
+    "mentionsMoney": true,
+    "mentionsMeeting": false,
+    "asksForAction": false,
+    "prioritySender": false
+  }
+}

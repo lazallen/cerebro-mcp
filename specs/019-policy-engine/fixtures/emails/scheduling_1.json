@@ -1,0 +1,22 @@
+{
+  "messageId": "m_sched_1",
+  "conversationId": "c_sched_1",
+  "internetMessageId": "<sched1@partner.example>",
+  "from": { "name": "Alex", "email": "alex@partner.example" },
+  "to": ["stuart@example.com"],
+  "cc": [],
+  "subject": "Can we find 30 mins next week?",
+  "receivedDateTime": "2026-02-19T09:10:00Z",
+  "bodyPreview": "Are you free Tue or Wed afternoon? Happy to work around your schedule.",
+  "bodyText": "Are you free Tue or Wed afternoon? …",
+  "signals": {
+    "isAutomated": false,
+    "isBulk": false,
+    "hasUnsubscribe": false,
+    "hasAttachments": false,
+    "mentionsMoney": false,
+    "mentionsMeeting": true,
+    "asksForAction": true,
+    "prioritySender": false
+  }
+}

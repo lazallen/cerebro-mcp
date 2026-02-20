@@ -157,7 +157,7 @@ describe('ConfigLoader', () => {
           {
             id: 'duplicate-id', // Duplicate!
             name: 'Task 2',
-            type: 'calendar-review',
+            type: 'calendar-ingestion',
             schedule: '0 9 * * *',
             enabled: true,
             config: {},
@@ -229,7 +229,7 @@ describe('ConfigLoader', () => {
           {
             id: 'task-2',
             name: 'Task 2',
-            type: 'calendar-review',
+            type: 'calendar-ingestion',
             schedule: '0 9 * * *',
             enabled: true,
             config: {},

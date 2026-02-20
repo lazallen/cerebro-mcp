@@ -1,0 +1,313 @@
+# Default Policy: Multi-Source Triage v1
+# This is the shipped default policy for the Cerebro policy engine.
+# Tune thresholds, labels, and folders here — no code changes required.
+#
+# Priority tiers:
+#   1100+ = hard filters (spam, blocklist)
+#   900-1099 = automated/bulk mail
+#   700-899 = scheduling / coordination
+#   600-699 = approvals
+#   500-599 = action required
+#   300-499 = FYI / informational
+#   100-299 = delegatable / low priority
+#   0-99    = fallback
+
+id: default-triage
+version: 1.0.0
+
+defaults:
+  # Confidence below this → safety gates may add ASK_HUMAN
+  approvalThreshold: 0.75
+
+  # Confidence below this → suggest Claude enrichment
+  claudeRecommendThreshold: 0.60
+
+  # Risk level assigned when intent = UNKNOWN
+  unknownIntentRisk: MEDIUM
+
+  # Semantic category → source system label string
+  # For Outlook: these are the Outlook category names.
+  # For other sources: treat as tag/label names.
+  categories:
+    newsletter: "ReadLater/Newsletter"
+    receipt: "Records/Receipt"
+    spamCandidate: "SpamCandidate"
+    triageAction: "Triage/Action"
+    triageFYI: "Triage/FYI"
+    scheduling: "Triage/Scheduling"
+    approvalRequest: "Triage/Approval"
+
+  # Semantic folder → human-readable folder name (executor resolves to ID)
+  folders:
+    archive: "Archive"
+    inbox: "Inbox"
+
+  # Emails/authors in this list → prioritySender: true
+  senderAllowlist: []
+    # - "boss@company.com"
+    # - "cto@company.com"
+
+  # Domains in this list → auto-classify SPAM candidate
+  senderBlocklistDomains: []
+    # - "cheap-deals.example"
+
+  conflictResolution:
+    # When ASK_HUMAN is present, suppress MOVE/ARCHIVE actions
+    askHumanBlocksMoveToArchive: true
+
+rules:
+  # ============================================================
+  # 1100 — Hard filters
+  # ============================================================
+
+  - id: blocklist-domain-spam
+    priority: 1100
+    when:
+      any:
+        - field: "from.email"
+          op: domain_in
+          value: "${defaults.senderBlocklistDomains}"
+        - all:
+            - field: "signals.isBulk"
+              op: eq
+              value: true
+            - field: "signals.isAutomated"
+              op: eq
+              value: true
+            - field: "signals.hasUnsubscribe"
+              op: eq
+              value: true
+            - field: "title"
+              op: matches
+              value: "(?i)free money|get rich|winner|act now|limited time|congratulations"
+    setClassification:
+      intent: SPAM
+      urgency: SOMEDAY
+      risk: LOW
+      confidence: 0.95
+      rationale:
+        - "Sender domain blocklist or strong spam heuristics matched."
+    actions:
+      - type: CATEGORY
+        name: "${defaults.categories.spamCandidate}"
+      - type: MOVE
+        folder: "${defaults.folders.archive}"
+    terminal: true
+
+  # ============================================================
+  # 900 — Automated / bulk mail
+  # ============================================================
+
+  - id: newsletter-auto-archive
+    priority: 900
+    when:
+      any:
+        - field: "signals.hasUnsubscribe"
+          op: eq
+          value: true
+        - all:
+            - field: "signals.isBulk"
+              op: eq
+              value: true
+            - field: "signals.isAutomated"
+              op: eq
+              value: true
+    setClassification:
+      intent: NEWSLETTER
+      urgency: SOMEDAY
+      risk: LOW
+      confidence: 0.90
+      rationale:
+        - "Bulk/automated indicators (unsubscribe or bulk+automated combined)."
+    actions:
+      - type: CATEGORY
+        name: "${defaults.categories.newsletter}"
+      - type: MOVE
+        folder: "${defaults.folders.archive}"
+    terminal: true
+
+  - id: receipt-auto-archive
+    priority: 880
+    when:
+      all:
+        - field: "signals.mentionsMoney"
+          op: eq
+          value: true
+        - any:
+            - field: "title"
+              op: matches
+              value: "(?i)receipt|invoice|order|payment|paid|statement"
+            - field: "snippet"
+              op: matches
+              value: "(?i)receipt|invoice|order|payment|paid|total|amount"
+    setClassification:
+      intent: RECEIPT
+      urgency: SOMEDAY
+      risk: LOW
+      confidence: 0.90
+      rationale:
+        - "Money mention plus receipt/invoice/order/payment keywords."
+    actions:
+      - type: CATEGORY
+        name: "${defaults.categories.receipt}"
+      - type: MOVE
+        folder: "${defaults.folders.archive}"
+    terminal: true
+
+  # ============================================================
+  # 700 — Scheduling / coordination
+  # ============================================================
+
+  - id: scheduling-flag
+    priority: 700
+    when:
+      any:
+        - field: "signals.mentionsMeeting"
+          op: eq
+          value: true
+        - field: "extracted.intent"
+          op: eq
+          value: SCHEDULING
+        - field: "source"
+          op: eq
+          value: calendar
+    setClassification:
+      intent: SCHEDULING
+      urgency: THIS_WEEK
+      risk: MEDIUM
+      confidence: 0.82
+      rationale:
+        - "Meeting/scheduling signals or calendar source."
+    actions:
+      - type: CATEGORY
+        name: "${defaults.categories.scheduling}"
+      - type: DRAFT_REPLY
+        template: scheduling_ack
+        requiresApproval: true
+    terminal: true
+
+  # ============================================================
+  # 600 — Approval requests
+  # ============================================================
+
+  - id: approval-request-ask-human
+    priority: 600
+    when:
+      any:
+        - field: "extracted.intent"
+          op: eq
+          value: APPROVAL_REQUEST
+        - field: "title"
+          op: matches
+          value: "(?i)approve|sign[- ]?off|permission|can you confirm|please confirm|needs your approval"
+        - field: "snippet"
+          op: matches
+          value: "(?i)please approve|your approval|sign off|needs approval"
+    setClassification:
+      intent: APPROVAL_REQUEST
+      urgency: NOW
+      risk: HIGH
+      confidence: 0.85
+      rationale:
+        - "Approval/sign-off language detected."
+    actions:
+      - type: CATEGORY
+        name: "${defaults.categories.approvalRequest}"
+      - type: ASK_HUMAN
+        question: "This appears to require a decision or approval. What action should be taken?"
+    terminal: true
+
+  # ============================================================
+  # 500 — Action required
+  # ============================================================
+
+  - id: action-required-create-task
+    priority: 500
+    when:
+      any:
+        - field: "signals.asksForAction"
+          op: eq
+          value: true
+        - field: "extracted.intent"
+          op: eq
+          value: ACTION_REQUIRED
+        - field: "title"
+          op: matches
+          value: "(?i)action required|please|can you|could you|request|follow.?up"
+    setClassification:
+      intent: ACTION_REQUIRED
+      urgency: THIS_WEEK
+      risk: MEDIUM
+      confidence: 0.80
+      rationale:
+        - "Action/request cues detected in signals or subject."
+    actions:
+      - type: CATEGORY
+        name: "${defaults.categories.triageAction}"
+      - type: CREATE_TASK
+        template: action_required
+      - type: FLAG
+        flagStatus: flagged
+    terminal: true
+
+  # ============================================================
+  # 300 — FYI / informational
+  # ============================================================
+
+  - id: fyi-reading-pack
+    priority: 300
+    when:
+      any:
+        - field: "extracted.intent"
+          op: eq
+          value: FYI
+        - all:
+            - field: "signals.isAutomated"
+              op: eq
+              value: false
+            - field: "signals.asksForAction"
+              op: eq
+              value: false
+            - field: "signals.isBulk"
+              op: eq
+              value: false
+    setClassification:
+      intent: FYI
+      urgency: SOMEDAY
+      risk: LOW
+      confidence: 0.78
+      rationale:
+        - "No action cues; non-automated, non-bulk — treat as informational."
+    actions:
+      - type: CATEGORY
+        name: "${defaults.categories.triageFYI}"
+      - type: CREATE_READING_PACK
+        template: reading_pack_entry
+        notePath: "system/artifacts/reading-packs/{{date:YYYY-MM-DD}}.md"
+    terminal: true
+
+  # ============================================================
+  # 0 — Fallback
+  # ============================================================
+
+  - id: fallback-unknown-ask-human
+    priority: 0
+    when:
+      any:
+        - field: "extracted.confidence"
+          op: lte
+          value: 0.74
+        - field: "extracted.intent"
+          op: eq
+          value: UNKNOWN
+    setClassification:
+      intent: UNKNOWN
+      urgency: SOMEDAY
+      risk: MEDIUM
+      confidence: 0.50
+      rationale:
+        - "Insufficient confidence or intent unknown — human decision required."
+    actions:
+      - type: ASK_HUMAN
+        question: "Unclear what to do with this item. Options: keep, archive, create task, add to reading pack, draft reply?"
+    terminal: true
