@@ -13,6 +13,35 @@ import type {
   MeetingInput,
 } from '../../types/onenote';
 
+/**
+ * Error thrown when a Graph API request fails.
+ * Carries the HTTP status and, for 429 responses, the Retry-After value in seconds.
+ */
+export class GraphApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly retryAfter?: number
+  ) {
+    super(message);
+    this.name = 'GraphApiError';
+  }
+}
+
+/** Throw a GraphApiError, reading Retry-After from the response headers when present. */
+async function throwGraphError(response: Response, context: string): Promise<never> {
+  const retryAfterHeader = response.headers.get('Retry-After');
+  const retryAfter = retryAfterHeader ? parseInt(retryAfterHeader, 10) : undefined;
+  let body = '';
+  try { body = await response.text(); } catch { /* ignore */ }
+  const detail = body ? ` - ${body}` : '';
+  throw new GraphApiError(
+    `${context}: ${response.status} ${response.statusText}${detail}`,
+    response.status,
+    retryAfter
+  );
+}
+
 export class OneNoteClient {
   private baseUrl = 'https://graph.microsoft.com/v1.0';
   private accessToken: string;
@@ -36,7 +65,7 @@ export class OneNoteClient {
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to fetch notebooks: ${response.status} ${response.statusText}`);
+        await throwGraphError(response, 'Failed to fetch notebooks');
       }
 
       const data = await response.json() as OneNoteListResponse<OneNoteNotebook>;
@@ -79,7 +108,7 @@ export class OneNoteClient {
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to list sections: ${response.status} ${response.statusText}`);
+        await throwGraphError(response, 'Failed to list sections');
       }
 
       const data = await response.json() as OneNoteListResponse<OneNoteSection>;
@@ -118,8 +147,7 @@ export class OneNoteClient {
       });
 
       if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Failed to create section: ${response.status} ${response.statusText} - ${errorText}`);
+        await throwGraphError(response, 'Failed to create section');
       }
 
       const section = await response.json() as OneNoteSection;
@@ -211,7 +239,7 @@ export class OneNoteClient {
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to list pages: ${response.status} ${response.statusText}`);
+        await throwGraphError(response, 'Failed to list pages');
       }
 
       const data = await response.json() as OneNoteListResponse<OneNotePage>;
@@ -248,8 +276,7 @@ export class OneNoteClient {
       });
 
       if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Failed to create page: ${response.status} ${response.statusText} - ${errorText}`);
+        await throwGraphError(response, 'Failed to create page');
       }
 
       const page = await response.json() as OneNotePage;
@@ -348,8 +375,7 @@ export class OneNoteClient {
       });
 
       if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Failed to update page: ${response.status} ${response.statusText} - ${errorText}`);
+        await throwGraphError(response, 'Failed to update page');
       }
 
       // After successful update, fetch the updated page metadata
@@ -361,7 +387,7 @@ export class OneNoteClient {
       });
 
       if (!pageResponse.ok) {
-        throw new Error(`Failed to fetch updated page: ${pageResponse.status} ${pageResponse.statusText}`);
+        await throwGraphError(pageResponse, 'Failed to fetch updated page');
       }
 
       const updatedPage = await pageResponse.json() as OneNotePage;
@@ -401,7 +427,7 @@ export class OneNoteClient {
       );
 
       if (!response.ok) {
-        throw new Error(`Failed to fetch page content: ${response.status} ${response.statusText}`);
+        await throwGraphError(response, 'Failed to fetch page content');
       }
 
       const contentType = response.headers.get('content-type') || '';

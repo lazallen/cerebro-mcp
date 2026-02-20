@@ -1042,6 +1042,124 @@ This project follows:
 - **009**: SSE Transport - Modern streamable HTTP for MCP protocol
 - **010**: Slack Message Actions - Socket Mode for message shortcuts and workflows
 - **011**: LocalFoundry Integration - Local LLM text processing (summarize, clarify, extract)
+- **012-016**: Microsoft 365 Extended - Email filtering, folder operations, event responses, room booking
+- **017**: Heartbeat Framework - Scheduled task automation with cron expressions
+- **018**: Journal Triage - Automatic calendar → journal sync with OneNote integration
+
+### Journal Triage (Feature 018)
+
+**Automatic calendar-to-journal synchronization** - Keeps your markdown journal up-to-date with calendar events and syncs prep notes to OneNote.
+
+#### Key Features
+
+- **📅 Calendar Sync**: Automatically creates journal entries from calendar events (7-day lookahead)
+- **🔄 Smart Merge**: Updates meeting details while preserving your prep notes and meeting notes
+- **🗒️ OneNote Integration**: Syncs prep notes to monthly OneNote sections (optional)
+- **✅ EventId Tracking**: O(1) duplicate prevention and intelligent matching
+- **❌ Cancellation Handling**: Marks cancelled meetings while preserving all your notes
+- **📊 Heartbeat Summary**: Execution statistics appended to daily journal
+- **🔒 File Locking**: Prevents concurrent write corruption with proper-lockfile
+- **🔁 Retry Logic**: Exponential backoff for OneNote API failures (1s→2s→4s)
+
+#### Configuration
+
+Add to `heartbeat-config.json`:
+
+```json
+{
+  "id": "journal-triage-hourly",
+  "name": "Hourly Journal Triage",
+  "type": "journal-triage",
+  "schedule": "0 * * * *",
+  "enabled": true,
+  "config": {
+    "lookaheadDays": 7,
+    "journalDir": "areas/journal",
+    "createOneNotePages": false,
+    "oneNoteSectionFormat": "YYYY-MM Meetings"
+  }
+}
+```
+
+**Config Options:**
+- `lookaheadDays` (number, default: 7) - Days ahead to fetch calendar events
+- `journalDir` (string, default: "areas/journal") - Journal directory relative to rootDir
+- `createOneNotePages` (boolean, default: false) - Enable OneNote sync for prep notes
+- `oneNoteSectionFormat` (string, default: "YYYY-MM Meetings") - Monthly section naming pattern
+
+#### Journal Format
+
+Files stored in `{rootDir}/areas/journal/YYYY-MM/YYYY-MM-DD.md`:
+
+```markdown
+---
+date: 2026-02-18
+day: Tuesday
+type: daily-planning
+energy-level: 7
+energy-description: "Ready to start the day"
+---
+
+# Tuesday, February 18, 2026
+
+## Today's Schedule
+
+### 09:00-10:00 - Team Standup
+
+**Attendees:** Alice, Bob
+**Location:** Conference Room A
+**Related:** [[project/sprint-planning]]
+**EventId:** [eventId](AAMkADA0ZWY5...)
+
+**Prep Notes:**
+- Review yesterday's progress
+- Prepare blockers discussion
+
+**Meeting Notes:**
+
+
+---
+
+## Heartbeat Summary
+
+**Last Run**: 2026-02-18T10:00:00Z
+**Task**: journal-triage
+
+- Created 1 new journal entries
+- Updated 2 existing entries
+- Synced 1 OneNote pages
+- Errors: None
+
+---
+```
+
+#### Workflow
+
+1. **Fetch**: Task fetches calendar events for next N days
+2. **Create/Update**: Creates new journal entries or updates existing ones by EventId
+3. **Preserve**: All user content (prepNotes, meetingNotes, related links) is preserved
+4. **Merge**: Only calendar metadata (time, title, location, attendees) is updated
+5. **Cancel**: Meetings no longer in calendar are marked as cancelled (notes preserved)
+6. **Sync**: If enabled, prep notes are synced to OneNote with meeting metadata
+
+#### Quick Start
+
+```bash
+# 1. Create journal directory
+mkdir -p ./data/areas/journal
+
+# 2. Configure task in heartbeat-config.json
+# (see configuration example above)
+
+# 3. Start heartbeat service
+npm start
+
+# 4. View generated journals
+ls -la ./data/areas/journal/2026-02/
+cat ./data/areas/journal/2026-02/2026-02-18.md
+```
+
+📚 **Full documentation**: [specs/018-journal-triage/quickstart.md](specs/018-journal-triage/quickstart.md)
 
 ## License
 

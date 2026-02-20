@@ -17,6 +17,7 @@ Auto-generated from all feature plans. Last updated: 2026-01-22
 - File-based OAuth token storage (existing: `.tokens/` directory) (016-meeting-room-booking)
 - TypeScript 5.3.3 with Node.js 18+ + node-cron ^3.0.3, chokidar ^4.0.3, proper-lockfile ^4.1.2, @modelcontextprotocol/sdk ^1.25.3 (017-task-heartbeat)
 - File-based (event files in markdown, execution logs, counter persistence) (017-task-heartbeat)
+- File-based markdown journal entries in `{rootDir}/areas/journal.YYYY-MM/YYYY-MM-DD.md` (018-journal-triage)
 
 - TypeScript 5.x with Node.js 18+ + @modelcontextprotocol/sdk, Node.js crypto (HMAC-SHA256), uuid (010-slack-message-actions)
 
@@ -36,10 +37,9 @@ npm test && npm run lint
 TypeScript 5.x with Node.js 18+: Follow standard conventions
 
 ## Recent Changes
+- 018-journal-triage: Added TypeScript 5.3.3 with Node.js 18+
 - 017-task-heartbeat: Added TypeScript 5.3.3 with Node.js 18+ + node-cron ^3.0.3, chokidar ^4.0.3, proper-lockfile ^4.1.2, @modelcontextprotocol/sdk ^1.25.3
 - 016-meeting-room-booking: Added TypeScript 5.3.3 with Node.js 18+ + `@modelcontextprotocol/sdk ^1.25.3`, Microsoft Graph API v1.0
-- 015-meeting-response: Added TypeScript 5.3.3 with Node.js 18+ + `@modelcontextprotocol/sdk ^1.25.3`, Microsoft Graph API v1.0
-- 014-move-email-folder: Added TypeScript 5.3.3 with Node.js 18+ + @modelcontextprotocol/sdk ^1.25.3, Microsoft Graph API v1.0 (existing)
 
 
 <!-- MANUAL ADDITIONS START -->

@@ -24,6 +24,8 @@ export class HeartbeatService {
       graphClient?: any;
       lfClient?: any;
       oneNoteClient?: any;
+      microsoftService?: any;
+      rootDir?: string;
     }
   ) {
     this.configLoader = new ConfigLoader(configPath);
@@ -62,6 +64,8 @@ export class HeartbeatService {
         graphClient: this.dependencies?.graphClient,
         lfClient: this.dependencies?.lfClient,
         eventsDir,
+        microsoftService: this.dependencies?.microsoftService,
+        rootDir: config.rootDir,
       });
 
       // Initialize scheduler
@@ -245,6 +249,8 @@ export class HeartbeatService {
         graphClient: this.dependencies?.graphClient,
         lfClient: this.dependencies?.lfClient,
         eventsDir: `${newConfig.rootDir}/events`,
+        microsoftService: this.dependencies?.microsoftService,
+        rootDir: newConfig.rootDir,
       });
 
       // Create new scheduler with updated registry

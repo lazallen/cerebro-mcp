@@ -5,7 +5,7 @@
 /**
  * Task types supported by the heartbeat system
  */
-export type TaskType = 'email-triage' | 'calendar-review';
+export type TaskType = 'email-triage' | 'calendar-review' | 'journal-triage';
 
 /**
  * Configuration for a single scheduled task

@@ -29,6 +29,45 @@
         "llmTimeout": 5000,
         "batchSize": 5
       }
+    },
+    {
+      "id": "journal-triage-hourly",
+      "name": "Hourly Journal Triage",
+      "type": "journal-triage",
+      "schedule": "0 * * * *",
+      "enabled": true,
+      "config": {
+        "lookaheadDays": 7,
+        "journalDir": "areas/journal",
+        "createOneNotePages": false,
+        "workdaysOnly": true
+      }
+    },
+    {
+      "id": "journal-triage-15min",
+      "name": "Journal Triage (Every 15 Minutes)",
+      "type": "journal-triage",
+      "schedule": "*/15 * * * *",
+      "enabled": false,
+      "config": {
+        "lookaheadDays": 3,
+        "journalDir": "areas/journal",
+        "createOneNotePages": true,
+        "workdaysOnly": true
+      }
+    },
+    {
+      "id": "journal-triage-daily",
+      "name": "Daily Journal Triage (Morning at 8 AM)",
+      "type": "journal-triage",
+      "schedule": "0 8 * * *",
+      "enabled": false,
+      "config": {
+        "lookaheadDays": 14,
+        "journalDir": "areas/journal",
+        "createOneNotePages": true,
+        "workdaysOnly": true
+      }
     }
   ]
 }
