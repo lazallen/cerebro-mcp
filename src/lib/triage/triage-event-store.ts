@@ -166,6 +166,8 @@ export async function getEvent(systemDir: string, eventId: string): Promise<Tria
 /**
  * Write or update a TriageEvent artifact atomically.
  * On update: overwrites frontmatter scalars, appends new pass sections to body.
+ * On re-ingest: preserves existing status/passCount/latestPassTimestamp when the
+ * stored file is further along in the pipeline than the incoming event.
  */
 export async function saveEvent(systemDir: string, event: TriageEvent): Promise<void> {
   const dir = triageDir(systemDir);
@@ -176,17 +178,35 @@ export async function saveEvent(systemDir: string, event: TriageEvent): Promise<
   const existing = await readArtifact(filepath);
   const existingBody = existing?.content;
 
-  const frontmatter = toFrontmatter(event);
-  const body = buildBody(event, existingBody);
+  // If re-ingesting an already-processed event, preserve pipeline progress.
+  // Guard: only apply when the stored passCount exceeds the incoming value
+  // (i.e. ingestion reset to 0, but the file is already evaluated/actioned).
+  let effectiveEvent = event;
+  if (existing) {
+    const storedPassCount = (existing.data['passCount'] as number | undefined) ?? 0;
+    if (storedPassCount > event.passCount) {
+      effectiveEvent = {
+        ...event,
+        status: (existing.data['status'] as TriageEventStatus) ?? event.status,
+        passCount: storedPassCount,
+        latestPassTimestamp:
+          (existing.data['latestPassTimestamp'] as string | undefined) ??
+          event.latestPassTimestamp,
+      };
+    }
+  }
+
+  const frontmatter = toFrontmatter(effectiveEvent);
+  const body = buildBody(effectiveEvent, existingBody);
 
   await writeArtifact(dir, filename, frontmatter, body);
 
   logger.debug({
     operation: 'triage_event_saved',
-    eventId: event.eventId,
-    status: event.status,
-    passCount: event.passCount,
-    message: `TriageEvent saved: ${event.eventId}`,
+    eventId: effectiveEvent.eventId,
+    status: effectiveEvent.status,
+    passCount: effectiveEvent.passCount,
+    message: `TriageEvent saved: ${effectiveEvent.eventId}`,
   });
 }
 
