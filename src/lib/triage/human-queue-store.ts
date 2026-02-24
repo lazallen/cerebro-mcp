@@ -4,8 +4,8 @@
  * Supports ask_human (human clarification) and claude_approval (LLM gating) item types.
  */
 
-import * as path from 'path';
 import * as fs from 'fs/promises';
+import * as path from 'path';
 import { writeArtifact, readArtifact, listArtifacts } from './artifact-writer';
 import type { HumanQueueItem, HumanQueueItemStatus } from '../policy/types';
 import { logger } from '../../common/logger';
@@ -161,6 +161,45 @@ export async function updateItemStatus(
   }
 
   return false;
+}
+
+/**
+ * Sweep system/human/ for items with status 'complete' and move them to system/human/done/.
+ * Called by PipelineArchiveTask.
+ * Returns the number of items archived.
+ */
+export async function archiveCompletedItems(systemDir: string): Promise<number> {
+  const dir = humanDir(systemDir);
+  const doneDir = path.join(dir, 'done');
+  const files = await listArtifacts(dir);
+  let count = 0;
+
+  for (const filepath of files) {
+    const artifact = await readArtifact(filepath);
+    if (!artifact) continue;
+    if (artifact.data['status'] !== 'complete') continue;
+
+    await fs.mkdir(doneDir, { recursive: true });
+    const destPath = path.join(doneDir, path.basename(filepath));
+    await fs.rename(filepath, destPath);
+
+    try {
+      await fs.unlink(`${filepath}.lock`);
+    } catch {
+      /* ignore */
+    }
+
+    const id = String(artifact.data['id'] ?? '');
+    logger.info({
+      operation: 'human_queue_item_archived',
+      id,
+      dest: destPath,
+      message: `Human queue item archived: ${id}`,
+    });
+    count++;
+  }
+
+  return count;
 }
 
 function buildBody(item: HumanQueueItem, contextBody?: string): string {

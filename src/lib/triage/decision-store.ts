@@ -3,6 +3,7 @@
  * Writes PolicyDecision artifacts and tracks action application.
  */
 
+import * as fs from 'fs/promises';
 import * as path from 'path';
 import { writeArtifact, readArtifact, listArtifacts } from './artifact-writer';
 import type { PolicyDecision, ResolvedAction } from '../policy/types';
@@ -182,6 +183,45 @@ export async function markDecisionApplied(systemDir: string, eventId: string): P
     eventId,
     message: `Decision not found for marking applied: ${eventId}`,
   });
+}
+
+/**
+ * Sweep system/decisions/ for decisions with actionsApplied = true and move them to
+ * system/decisions/done/. Called by PipelineArchiveTask.
+ * Returns the number of decisions archived.
+ */
+export async function archiveAppliedDecisions(systemDir: string): Promise<number> {
+  const dir = decisionsDir(systemDir);
+  const doneDir = path.join(dir, 'done');
+  const files = await listArtifacts(dir);
+  let count = 0;
+
+  for (const filepath of files) {
+    const artifact = await readArtifact(filepath);
+    if (!artifact) continue;
+    if (artifact.data['actionsApplied'] !== true) continue;
+
+    await fs.mkdir(doneDir, { recursive: true });
+    const destPath = path.join(doneDir, path.basename(filepath));
+    await fs.rename(filepath, destPath);
+
+    try {
+      await fs.unlink(`${filepath}.lock`);
+    } catch {
+      /* ignore */
+    }
+
+    const eventId = String(artifact.data['eventId'] ?? '');
+    logger.debug({
+      operation: 'decision_archived_sweep',
+      eventId,
+      dest: destPath,
+      message: `Decision archived by sweep: ${eventId}`,
+    });
+    count++;
+  }
+
+  return count;
 }
 
 /**

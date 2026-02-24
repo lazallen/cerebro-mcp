@@ -151,13 +151,19 @@ export async function listEvents(
  */
 export async function getEvent(systemDir: string, eventId: string): Promise<TriageEvent | null> {
   const dir = triageDir(systemDir);
-  const files = await listArtifacts(dir);
 
-  for (const filepath of files) {
-    const artifact = await readArtifact(filepath);
-    if (!artifact) continue;
-    if (artifact.data['eventId'] === eventId) {
-      return fromFrontmatter(artifact.data, artifact.content);
+  // Search active directory first, then done/ — supports executor and policy pipeline
+  // looking up events that were already archived.
+  const searchDirs = [dir, path.join(dir, 'done')];
+
+  for (const searchDir of searchDirs) {
+    const files = await listArtifacts(searchDir);
+    for (const filepath of files) {
+      const artifact = await readArtifact(filepath);
+      if (!artifact) continue;
+      if (artifact.data['eventId'] === eventId) {
+        return fromFrontmatter(artifact.data, artifact.content);
+      }
     }
   }
   return null;
@@ -190,8 +196,7 @@ export async function saveEvent(systemDir: string, event: TriageEvent): Promise<
         status: (existing.data['status'] as TriageEventStatus) ?? event.status,
         passCount: storedPassCount,
         latestPassTimestamp:
-          (existing.data['latestPassTimestamp'] as string | undefined) ??
-          event.latestPassTimestamp,
+          (existing.data['latestPassTimestamp'] as string | undefined) ?? event.latestPassTimestamp,
       };
     }
   }
@@ -263,6 +268,77 @@ function fromFrontmatter(fm: Record<string, unknown>, content: string): TriageEv
 function extractSnippet(content: string): string {
   const snippetMatch = content.match(/## Snippet\s*\n\n([\s\S]*?)(?:\n\n##|\s*$)/);
   return snippetMatch ? snippetMatch[1].trim() : '';
+}
+
+/**
+ * Sweep system/triage/ for events with status 'actioned' and move them to system/triage/done/.
+ * Called by PipelineArchiveTask — not inline by the executor.
+ * Returns the number of events archived.
+ */
+export async function archiveActionedEvents(systemDir: string): Promise<number> {
+  const dir = triageDir(systemDir);
+  const doneDir = path.join(dir, 'done');
+  const files = await listArtifacts(dir);
+  let count = 0;
+
+  for (const filepath of files) {
+    const artifact = await readArtifact(filepath);
+    if (!artifact) continue;
+    if (artifact.data['status'] !== 'actioned') continue;
+
+    await fs.mkdir(doneDir, { recursive: true });
+    const destPath = path.join(doneDir, path.basename(filepath));
+    await fs.rename(filepath, destPath);
+
+    try {
+      await fs.unlink(`${filepath}.lock`);
+    } catch {
+      /* ignore */
+    }
+
+    const eventId = String(artifact.data['eventId'] ?? '');
+    logger.debug({
+      operation: 'triage_event_archived_sweep',
+      eventId,
+      dest: destPath,
+      message: `Triage event archived by sweep: ${eventId}`,
+    });
+    count++;
+  }
+
+  return count;
+}
+
+/**
+ * Move a triage event file from system/triage/done/ back to system/triage/.
+ * Called by the executor when new actions need to be applied to an already-archived event
+ * (e.g. a human-override decision). The event becomes active again and will be
+ * re-archived by the pipeline-archive sweep once all new actions are applied.
+ * Returns true if the file was moved, false if it was already in the active directory.
+ */
+export async function unarchiveEvent(systemDir: string, eventId: string): Promise<boolean> {
+  const dir = triageDir(systemDir);
+  const doneDir = path.join(dir, 'done');
+  const doneFiles = await listArtifacts(doneDir);
+
+  for (const filepath of doneFiles) {
+    const artifact = await readArtifact(filepath);
+    if (!artifact) continue;
+    if (artifact.data['eventId'] !== eventId) continue;
+
+    const destPath = path.join(dir, path.basename(filepath));
+    await fs.rename(filepath, destPath);
+
+    logger.debug({
+      operation: 'triage_event_unarchived',
+      eventId,
+      dest: destPath,
+      message: `Triage event moved back to active: ${eventId}`,
+    });
+    return true;
+  }
+
+  return false;
 }
 
 /**

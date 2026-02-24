@@ -20,6 +20,8 @@ Auto-generated from all feature plans. Last updated: 2026-01-22
 - File-based markdown journal entries in `{rootDir}/areas/journal.YYYY-MM/YYYY-MM-DD.md` (018-journal-triage)
 - TypeScript 5.3.3, Node.js ≥18 + gray-matter ^4.0.3, chokidar ^4.0.3, proper-lockfile ^4.1.2, @anthropic-ai/sdk (to add), js-yaml (bundled with gray-matter), zod (validate policy at load) (019-policy-engine)
 - Frontmatter-enriched markdown files under `{rootDir}/system/`; no database (019-policy-engine)
+- TypeScript 5.3.3 / Node.js 18+ + `@modelcontextprotocol/sdk ^1.25.3`, `pino ^8.19.0` (existing); no new runtime dependencies required (Node 18+ `fetch` built-in) (020-slack-saved-items)
+- File-based JSON at `.tokens/slack-session-credentials.json` (0o600 permissions, consistent with `.tokens/` pattern) (020-slack-saved-items)
 
 - TypeScript 5.x with Node.js 18+ + @modelcontextprotocol/sdk, Node.js crypto (HMAC-SHA256), uuid (010-slack-message-actions)
 
@@ -39,9 +41,9 @@ npm test && npm run lint
 TypeScript 5.x with Node.js 18+: Follow standard conventions
 
 ## Recent Changes
+- 020-slack-saved-items: Added TypeScript 5.3.3 / Node.js 18+ + `@modelcontextprotocol/sdk ^1.25.3`, `pino ^8.19.0` (existing); no new runtime dependencies required (Node 18+ `fetch` built-in)
 - 019-policy-engine: Added TypeScript 5.3.3, Node.js ≥18 + gray-matter ^4.0.3, chokidar ^4.0.3, proper-lockfile ^4.1.2, @anthropic-ai/sdk (to add), js-yaml (bundled with gray-matter), zod (validate policy at load)
 - 018-journal-triage: Added TypeScript 5.3.3 with Node.js 18+
-- 017-task-heartbeat: Added TypeScript 5.3.3 with Node.js 18+ + node-cron ^3.0.3, chokidar ^4.0.3, proper-lockfile ^4.1.2, @modelcontextprotocol/sdk ^1.25.3
 
 
 <!-- MANUAL ADDITIONS START -->

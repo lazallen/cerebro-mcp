@@ -11,6 +11,9 @@ import { MicrosoftService } from '../services/microsoft';
 import { SlackService } from '../services/slack';
 import { LocalFoundryService } from '../services/localfoundry';
 import { TriageService } from '../services/triage';
+import { SlackSavedItemsService } from '../services/slack-saved-items/slack-saved-items-service';
+import { SessionCredentialStorage } from '../services/slack-saved-items/session-credential-storage';
+import { WebclientApiClient } from '../services/slack-saved-items/webclient-api-client';
 import { ServiceConfig } from '../types/service';
 import { loadLocalFoundryConfig } from '../common/config';
 import { ConfigLoader } from '../services/heartbeat/config-loader';
@@ -213,6 +216,25 @@ export async function registerServices(registry: ServiceRegistry): Promise<void>
       service: 'triage',
       error: error instanceof Error ? error.message : String(error),
       msg: 'Triage service not registered — heartbeat config missing or invalid',
+    });
+  }
+
+  // Slack Saved Items (always registered — no env var required; graceful when no credentials)
+  try {
+    const credentialStorage = new SessionCredentialStorage();
+    const apiClient = new WebclientApiClient(credentialStorage);
+    const slackSavedItemsService = new SlackSavedItemsService(credentialStorage, apiClient);
+    await registry.register(slackSavedItemsService);
+
+    logger.info({
+      service: 'slack-saved-items',
+      msg: 'Slack Saved Items service registered successfully',
+    });
+  } catch (error) {
+    logger.error({
+      service: 'slack-saved-items',
+      error: error instanceof Error ? error.message : String(error),
+      msg: 'Failed to register Slack Saved Items service',
     });
   }
 

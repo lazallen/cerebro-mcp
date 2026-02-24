@@ -22,7 +22,7 @@ import type { TaskConfig } from '../../../types/heartbeat';
 import type { TaskHandler } from '../types';
 import type { ResolvedAction, TriageEvent } from '../../../lib/policy/types';
 import { listPendingDecisions, markDecisionApplied } from '../../../lib/triage/decision-store';
-import { getEvent, archiveEvent } from '../../../lib/triage/triage-event-store';
+import { getEvent, unarchiveEvent } from '../../../lib/triage/triage-event-store';
 import type { AtlassianClient, ConfluencePageContent } from '../../../lib/atlassian';
 import { logger } from '../../../common/logger';
 
@@ -102,8 +102,14 @@ export class ExecutorTask implements TaskHandler {
         continue;
       }
 
+      // If the event was archived but new actions need to be applied, move it back to active
+      if (!dryRun) {
+        await unarchiveEvent(this.absoluteSystemDir, decision.eventId);
+      }
+
       let anyExecuted = false;
       let anyError = false;
+      let permanentFailure = false;
 
       for (const action of decision.actions) {
         if (action.applied) continue;
@@ -122,20 +128,41 @@ export class ExecutorTask implements TaskHandler {
           const executed = await this.executeApiAction(event, messageId, action, dryRun);
           if (executed) anyExecuted = true;
         } catch (err) {
-          logger.error({
-            operation: 'executor_action_error',
-            eventId: decision.eventId,
-            actionType: action.type,
-            error: (err as Error).message,
-            message: `Failed to execute ${action.type} for ${decision.eventId}`,
-          });
-          anyError = true;
+          const msg = (err as Error).message ?? '';
+          // Graph API 404 / "object not found" — the email was deleted or moved out of scope.
+          // Treat as a permanent failure: mark decision applied so we stop retrying.
+          if (
+            msg.includes('The specified object was not found') ||
+            msg.includes('ErrorItemNotFound') ||
+            msg.includes('404')
+          ) {
+            logger.warn({
+              operation: 'executor_action_permanent_failure',
+              eventId: decision.eventId,
+              actionType: action.type,
+              error: msg,
+              message: `Email no longer exists in Outlook — marking decision applied and abandoning`,
+            });
+            permanentFailure = true;
+          } else {
+            logger.error({
+              operation: 'executor_action_error',
+              eventId: decision.eventId,
+              actionType: action.type,
+              error: msg,
+              message: `Failed to execute ${action.type} for ${decision.eventId}`,
+            });
+            anyError = true;
+          }
         }
       }
 
-      if (anyExecuted && !anyError && !dryRun) {
+      if (permanentFailure && !dryRun) {
+        // Email gone — abandon cleanly so we stop retrying
         await markDecisionApplied(this.absoluteSystemDir, decision.eventId);
-        await archiveEvent(this.absoluteSystemDir, decision.eventId);
+        skipped++;
+      } else if (anyExecuted && !anyError && !dryRun) {
+        await markDecisionApplied(this.absoluteSystemDir, decision.eventId);
         actioned++;
       } else if (anyError) {
         errors++;
@@ -143,7 +170,6 @@ export class ExecutorTask implements TaskHandler {
         // All actions were file-based (already applied) or approval-gated — mark applied
         if (!dryRun) {
           await markDecisionApplied(this.absoluteSystemDir, decision.eventId);
-          await archiveEvent(this.absoluteSystemDir, decision.eventId);
         }
         skipped++;
       }

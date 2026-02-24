@@ -22,6 +22,7 @@ import { ServiceConfig } from '../types/service';
 import { BaseTokenStorage } from '../common/base-token-storage';
 import { isTokenExpired } from '../types/token';
 import type { MCPServer } from '../mcp-server';
+import { SessionCredentialStorage } from '../services/slack-saved-items/session-credential-storage';
 
 /**
  * Service registration for auth server
@@ -97,10 +98,12 @@ export class OAuthServer {
   private readonly protocol: 'http' | 'https';
   private isRunning: boolean = false;
   private mcpServer?: MCPServer;
+  private readonly slackCredentialStorage: SessionCredentialStorage;
 
   constructor(port?: number) {
     this.port = port ?? globalConfig.authServerPort;
     this.services = new Map();
+    this.slackCredentialStorage = new SessionCredentialStorage();
 
     // Detect SSL certificates for HTTPS
     this.protocol = this.detectSSLCertificates() ? 'https' : 'http';
@@ -353,6 +356,12 @@ export class OAuthServer {
 
       if (pathname === '/auth') {
         this.handleLegacyLogin(query, res);
+        return;
+      }
+
+      // Slack Saved Items credential management
+      if (pathname === '/auth/slack-saved-items/credentials') {
+        await this.handleSlackSavedItemsCredentials(req, res);
         return;
       }
 
@@ -866,6 +875,7 @@ export class OAuthServer {
    */
   private async renderHomePage(res: http.ServerResponse): Promise<void> {
     const serviceStatuses = await this.getServiceStatuses();
+    const slackSavedItemsCard = await this.renderSlackSavedItemsCard();
 
     const serviceCards =
       serviceStatuses.length > 0
@@ -882,6 +892,7 @@ export class OAuthServer {
         </div>
         <div class="service-grid">
           ${serviceCards}
+          ${slackSavedItemsCard}
         </div>
       `,
       'info'
@@ -1079,6 +1090,256 @@ export class OAuthServer {
           <p><em>You can close this window and return to Claude.</em></p>
         </body>
       </html>
+    `;
+  }
+
+  // ─── Slack Saved Items Credential Management ────────────────────────────────
+
+  /**
+   * Handle GET and POST requests for /auth/slack-saved-items/credentials
+   */
+  private async handleSlackSavedItemsCredentials(
+    req: http.IncomingMessage,
+    res: http.ServerResponse
+  ): Promise<void> {
+    if (req.method === 'POST') {
+      await this.handleSlackSavedItemsCredentialsPost(req, res);
+    } else {
+      await this.renderSlackSavedItemsCredentialsPage(res);
+    }
+  }
+
+  /**
+   * POST /auth/slack-saved-items/credentials — save new xoxc + xoxd credentials
+   */
+  private async handleSlackSavedItemsCredentialsPost(
+    req: http.IncomingMessage,
+    res: http.ServerResponse
+  ): Promise<void> {
+    try {
+      // Read request body
+      const body = await new Promise<string>((resolve, reject) => {
+        let data = '';
+        req.on('data', (chunk: Buffer) => { data += chunk.toString(); });
+        req.on('end', () => resolve(data));
+        req.on('error', reject);
+      });
+
+      const params = new URLSearchParams(body);
+      const xoxcToken = params.get('xoxcToken')?.trim() ?? '';
+      const xoxdCookie = params.get('xoxdCookie')?.trim() ?? '';
+
+      if (!xoxcToken || !xoxdCookie) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: 'Both xoxcToken and xoxdCookie are required.' }));
+        return;
+      }
+
+      const credentials = await this.slackCredentialStorage.save(xoxcToken, xoxdCookie);
+      const estimatedExpiresAt = new Date(credentials.savedAt + 12 * 60 * 60 * 1000).toISOString();
+
+      logger.info({
+        operation: 'slack_credentials_dashboard_save',
+        savedAt: new Date(credentials.savedAt).toISOString(),
+        msg: 'Slack session credentials saved via dashboard',
+      });
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        success: true,
+        message: 'Credentials saved successfully.',
+        estimatedExpiresAt,
+      }));
+    } catch (error) {
+      logger.error({
+        operation: 'slack_credentials_dashboard_save_error',
+        error: error instanceof Error ? error.message : String(error),
+        msg: 'Failed to save Slack session credentials',
+      });
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: false, error: 'Failed to save credentials. Check server logs.' }));
+    }
+  }
+
+  /**
+   * GET /auth/slack-saved-items/credentials — render credential management page
+   */
+  private async renderSlackSavedItemsCredentialsPage(res: http.ServerResponse): Promise<void> {
+    await this.slackCredentialStorage.load();
+    const creds = this.slackCredentialStorage.getCurrent();
+
+    let statusHtml: string;
+    if (!creds) {
+      statusHtml = `
+        <div class="cred-status not-configured">
+          <span class="cred-badge">○ Not Configured</span>
+          <p>No credentials saved yet. Follow the steps below to set up access.</p>
+        </div>`;
+    } else if (this.slackCredentialStorage.isExpired()) {
+      const savedAt = new Date(creds.savedAt).toLocaleString();
+      statusHtml = `
+        <div class="cred-status expired">
+          <span class="cred-badge">✗ Expired</span>
+          <p>Credentials saved at <strong>${savedAt}</strong> have expired. Please refresh them below.</p>
+        </div>`;
+    } else if (this.slackCredentialStorage.isExpiringSoon()) {
+      const expiresAt = new Date(this.slackCredentialStorage.getEstimatedExpiresAt()!).toLocaleString();
+      statusHtml = `
+        <div class="cred-status expiring-soon">
+          <span class="cred-badge">⚠ Expiring Soon</span>
+          <p>Credentials expire at approximately <strong>${expiresAt}</strong>. Refresh them soon to avoid interruption.</p>
+        </div>`;
+    } else {
+      const savedAt = new Date(creds.savedAt).toLocaleString();
+      const expiresAt = new Date(this.slackCredentialStorage.getEstimatedExpiresAt()!).toLocaleString();
+      statusHtml = `
+        <div class="cred-status configured">
+          <span class="cred-badge">✓ Configured</span>
+          <p>Credentials saved at <strong>${savedAt}</strong>, estimated expiry: <strong>${expiresAt}</strong>.</p>
+          ${creds.workspaceUrl ? `<p>Workspace: <code>${creds.workspaceUrl}</code></p>` : ''}
+        </div>`;
+    }
+
+    const html = this.renderHtml(
+      'Slack Saved Items — Credentials',
+      'Slack Saved Items: Session Credentials',
+      `
+      <style>
+        .cred-status { padding: 12px 16px; border-radius: 6px; margin-bottom: 20px; border: 1px solid; }
+        .cred-status.not-configured { background: #e9ecef; border-color: #adb5bd; }
+        .cred-status.expired { background: #f8d7da; border-color: #f5c6cb; }
+        .cred-status.expiring-soon { background: #fff3cd; border-color: #ffeeba; }
+        .cred-status.configured { background: #d4edda; border-color: #c3e6cb; }
+        .cred-badge { font-weight: bold; font-size: 1.05em; }
+        .cred-form label { display: block; margin-top: 12px; font-weight: bold; }
+        .cred-form input[type=text] { width: 100%; box-sizing: border-box; padding: 8px; font-family: monospace; font-size: 0.85em; margin-top: 4px; border: 1px solid #ccc; border-radius: 4px; }
+        .cred-form button { margin-top: 16px; padding: 10px 24px; background: #0078d4; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 1em; }
+        .cred-form button:hover { background: #005a9e; }
+        #save-result { margin-top: 12px; padding: 10px; border-radius: 4px; display: none; }
+        .steps ol { padding-left: 20px; }
+        .steps li { margin-bottom: 8px; }
+        code { background: #f4f4f4; padding: 2px 5px; border-radius: 3px; font-size: 0.9em; }
+        .back-link { margin-top: 20px; display: inline-block; }
+      </style>
+      ${statusHtml}
+      <h3>Extraction Instructions</h3>
+      <div class="steps">
+        <p>Credentials expire roughly every 12 hours. You need two values from your browser's active Slack session.</p>
+        <ol>
+          <li>Open Slack in <strong>Chrome or Edge</strong> and make sure you are logged in.</li>
+          <li>Press <strong>F12</strong> to open DevTools.</li>
+          <li><strong>Get your xoxc token:</strong><br>
+            → Application tab → Storage → Local Storage → <code>https://{yourworkspace}.slack.com</code><br>
+            → Find key <code>localConfig_v2</code> → search the value for <code>"token"</code><br>
+            → Copy the value starting with <code>xoxc-</code></li>
+          <li><strong>Get your xoxd cookie:</strong><br>
+            → Application tab → Storage → Cookies → <code>https://{yourworkspace}.slack.com</code><br>
+            → Find the cookie named <code>d</code><br>
+            → Copy its value (starts with <code>xoxd-</code>)</li>
+        </ol>
+      </div>
+      <h3>Enter Credentials</h3>
+      <form class="cred-form" id="cred-form">
+        <label for="xoxcToken">xoxc Token</label>
+        <input type="text" id="xoxcToken" name="xoxcToken" placeholder="xoxc-..." autocomplete="off" spellcheck="false">
+        <label for="xoxdCookie">xoxd Cookie</label>
+        <input type="text" id="xoxdCookie" name="xoxdCookie" placeholder="xoxd-..." autocomplete="off" spellcheck="false">
+        <button type="submit">Save Credentials</button>
+      </form>
+      <div id="save-result"></div>
+      <a class="back-link" href="/">← Back to Dashboard</a>
+      <script>
+        document.getElementById('cred-form').addEventListener('submit', async function(e) {
+          e.preventDefault();
+          const result = document.getElementById('save-result');
+          const xoxcToken = document.getElementById('xoxcToken').value.trim();
+          const xoxdCookie = document.getElementById('xoxdCookie').value.trim();
+          try {
+            const resp = await fetch('/auth/slack-saved-items/credentials', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+              body: new URLSearchParams({ xoxcToken, xoxdCookie }).toString()
+            });
+            const data = await resp.json();
+            result.style.display = 'block';
+            if (data.success) {
+              result.style.background = '#d4edda';
+              result.style.border = '1px solid #c3e6cb';
+              result.textContent = 'Credentials saved. Estimated expiry: ' + data.estimatedExpiresAt;
+              document.getElementById('xoxcToken').value = '';
+              document.getElementById('xoxdCookie').value = '';
+            } else {
+              result.style.background = '#f8d7da';
+              result.style.border = '1px solid #f5c6cb';
+              result.textContent = 'Error: ' + (data.error || 'Unknown error');
+            }
+          } catch(err) {
+            result.style.display = 'block';
+            result.style.background = '#f8d7da';
+            result.textContent = 'Network error saving credentials.';
+          }
+        });
+      </script>
+      `,
+      'info'
+    );
+
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    res.end(html);
+  }
+
+  /**
+   * Render a Slack Saved Items status card for the dashboard home page
+   */
+  private async renderSlackSavedItemsCard(): Promise<string> {
+    await this.slackCredentialStorage.load();
+    const creds = this.slackCredentialStorage.getCurrent();
+
+    let badge: string;
+    let badgeColor: string;
+    let badgeBg: string;
+    let statusMsg: string;
+
+    if (!creds) {
+      badge = '○ Not Configured';
+      badgeColor = '#6c757d';
+      badgeBg = '#e9ecef';
+      statusMsg = 'No credentials stored. Set up via the credentials page.';
+    } else if (this.slackCredentialStorage.isExpired()) {
+      badge = '✗ Expired';
+      badgeColor = '#d9534f';
+      badgeBg = '#f8d7da';
+      statusMsg = `Credentials expired (saved at ${new Date(creds.savedAt).toLocaleString()}).`;
+    } else if (this.slackCredentialStorage.isExpiringSoon()) {
+      badge = '⚠ Expiring Soon';
+      badgeColor = '#f0ad4e';
+      badgeBg = '#fff3cd';
+      const exp = this.slackCredentialStorage.getEstimatedExpiresAt();
+      statusMsg = `Credentials expire ~${new Date(exp!).toLocaleString()}. Refresh soon.`;
+    } else {
+      badge = '✓ Configured';
+      badgeColor = '#5cb85c';
+      badgeBg = '#d4edda';
+      const exp = this.slackCredentialStorage.getEstimatedExpiresAt();
+      statusMsg = `Active. Estimated expiry: ${new Date(exp!).toLocaleString()}.`;
+    }
+
+    return `
+      <div class="service-card" style="border-color: ${badgeColor};">
+        <div class="service-header">
+          <h2>Slack Saved Items</h2>
+          <span class="status-badge" style="background-color: ${badgeBg}; color: ${badgeColor};">
+            ${badge}
+          </span>
+        </div>
+        <div class="service-details">
+          <p><strong>Status:</strong> ${statusMsg}</p>
+          <p><em>Session credentials (xoxc/xoxd) — expires every ~12h</em></p>
+        </div>
+        <div class="service-actions">
+          <a href="/auth/slack-saved-items/credentials" class="btn btn-primary">Manage Credentials</a>
+        </div>
+      </div>
     `;
   }
 
