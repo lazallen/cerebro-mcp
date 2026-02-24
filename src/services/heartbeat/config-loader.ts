@@ -137,7 +137,7 @@ export class ConfigLoader {
     }
 
     // Validate task type enum
-    const supportedTypes = ['email-triage', 'journal-triage', 'email-ingestion', 'calendar-ingestion', 'policy-pipeline', 'executor'];
+    const supportedTypes = ['email-triage', 'journal-triage', 'email-ingestion', 'calendar-ingestion', 'policy-pipeline', 'executor', 'pipeline-archive', 'slack-saved-items-ingestion'];
     if (!supportedTypes.includes(t.type as string)) {
       throw new Error(
         `Invalid task configuration for "${t.id}": type "${t.type}" is not supported.\n\n` +
@@ -147,7 +147,9 @@ export class ConfigLoader {
         `- "email-ingestion": Ingest emails as TriageEvent artifacts for the policy pipeline\n` +
         `- "calendar-ingestion": Ingest calendar events as TriageEvent artifacts for the policy pipeline\n` +
         `- "policy-pipeline": Evaluate triage events against policy rules and execute file-based actions\n` +
-        `- "executor": Execute Microsoft Graph API actions (MOVE, CATEGORY, FLAG) from pending decisions\n\n` +
+        `- "executor": Execute Microsoft Graph API actions (MOVE, CATEGORY, FLAG) from pending decisions\n` +
+        `- "pipeline-archive": Sweep terminal-state artifacts to done/ directories\n` +
+        `- "slack-saved-items-ingestion": Ingest Slack saved items as TriageEvent artifacts\n\n` +
         `Current value: "${t.type}"`
       );
     }

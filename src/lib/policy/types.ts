@@ -13,7 +13,7 @@
 // Taxonomy
 // ---------------------------------------------------------------------------
 
-export type EventSource = 'email' | 'calendar' | 'slack' | 'journal' | 'other';
+export type EventSource = 'email' | 'calendar' | 'slack' | 'slack-saved' | 'journal' | 'other';
 
 export type TriageEventStatus = 'pending' | 'enriched' | 'evaluated' | 'actioned';
 

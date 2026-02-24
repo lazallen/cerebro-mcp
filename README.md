@@ -5,7 +5,7 @@ TypeScript MCP server providing Claude with access to Microsoft 365, Slack, Loca
 ## Features
 
 - **Dual-Port Architecture** - OAuth (HTTPS :3333) + MCP (HTTP :3334) for security and compatibility
-- **Multi-Service** - Microsoft 365 (email, calendar), Slack (channels, messages, reminders), and LocalFoundry (local LLM text processing)
+- **Multi-Service** - Microsoft 365 (email, calendar), Slack (channels, messages, reminders, saved items), and LocalFoundry (local LLM text processing)
 - **Type-Safe** - TypeScript strict mode, no `any` types
 - **OAuth 2.0** - Automatic token refresh and web-based authentication dashboard
 - **Streamable HTTP** - Modern MCP transport compatible with Claude Code
@@ -582,6 +582,10 @@ await bookMeetingRoom({
 - **Reminders**: list-reminders, create-reminder, complete-reminder
 - **Message Actions**: list-message-actions, get-message-action, delete-message-action
 
+**Slack Saved Items** (2 tools) - Slack Save for Later triage feed:
+- **list-saved-items**: List uncompleted Slack saved items with message text and sender
+- **mark-saved-item-complete**: Mark a saved item as complete by channel and timestamp
+
 **LocalFoundry** (3 tools) - Local LLM text processing:
 - **summarize**: Summarize long text content concisely (up to 50K characters)
 - **clarify**: Answer specific questions about provided text
@@ -1125,6 +1129,8 @@ This project follows:
 - **012-016**: Microsoft 365 Extended - Email filtering, folder operations, event responses, room booking
 - **017**: Heartbeat Framework - Scheduled task automation with cron expressions
 - **018**: Journal Triage - Automatic calendar → journal sync with OneNote integration
+- **019**: Policy Engine - YAML-driven triage evaluation with LLM enrichment and human queue
+- **020**: Slack Saved Items - Save for Later triage feed with heartbeat ingestion
 
 ### Journal Triage (Feature 018)
 
@@ -1240,6 +1246,65 @@ cat ./data/areas/journal/2026-02/2026-02-18.md
 ```
 
 📚 **Full documentation**: [specs/018-journal-triage/quickstart.md](specs/018-journal-triage/quickstart.md)
+
+### Slack Saved Items (Feature 020)
+
+**Triage your Slack Save for Later queue** — surfaces saved messages as TriageEvents in the policy pipeline, with optional auto-complete.
+
+#### Key Features
+
+- **📥 Saved Items List**: `list-saved-items` MCP tool returns uncompleted saved messages with full text and sender
+- **✅ Mark Complete**: `mark-saved-item-complete` removes items from the Slack save queue
+- **🔁 Heartbeat Ingestion**: `slack-saved-items-ingestion` task writes TriageEvent files every 15 minutes
+- **🔒 Credential Dashboard**: Manage session credentials at `https://localhost:3333/auth/slack-saved-items/credentials`
+- **⚡ Idempotent**: Re-runs do not create duplicate TriageEvent files
+- **🛑 Graceful Expiry**: Task exits cleanly when credentials expire (no errors, no events written)
+
+#### Credential Setup
+
+Slack Saved Items uses session-based credentials (xoxc token + xoxd cookie) managed via the dashboard, not OAuth:
+
+1. Open `https://localhost:3333/auth/slack-saved-items/credentials`
+2. Extract `xoxc-...` token and `xoxd-...` cookie from your Slack web session (browser DevTools → Application → Cookies)
+3. Paste both values and click **Save Credentials**
+
+Credentials are stored at `.tokens/slack-session-credentials.json` (chmod 0o600) and expire after 12 hours. Refresh them via the dashboard before expiry.
+
+#### Heartbeat Configuration
+
+Add to `heartbeat-config.json`:
+
+```json
+{
+  "id": "slack-saved-items-15min",
+  "name": "Slack Saved Items Ingestion",
+  "type": "slack-saved-items-ingestion",
+  "schedule": "*/15 * * * *",
+  "enabled": true,
+  "config": {
+    "markAsComplete": true
+  }
+}
+```
+
+**Config Options:**
+- `markAsComplete` (boolean, default: false) - Mark items as complete in Slack after ingesting
+
+#### Quick Start
+
+```bash
+# 1. Configure credentials via dashboard
+open https://localhost:3333/auth/slack-saved-items/credentials
+
+# 2. Enable heartbeat task
+# In heartbeat-config.json, set "enabled": true for slack-saved-items-15min
+
+# 3. Use MCP tools manually
+# list-saved-items → returns uncompleted saved messages
+# mark-saved-item-complete → removes from save queue
+```
+
+📚 **Full documentation**: [docs/guides/slack-saved-items.md](docs/guides/slack-saved-items.md)
 
 ## License
 

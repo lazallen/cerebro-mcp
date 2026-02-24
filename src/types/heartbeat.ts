@@ -11,7 +11,9 @@ export type TaskType =
   | 'email-ingestion'
   | 'calendar-ingestion'
   | 'policy-pipeline'
-  | 'executor';
+  | 'executor'
+  | 'pipeline-archive'
+  | 'slack-saved-items-ingestion';
 
 /**
  * Configuration for a single scheduled task

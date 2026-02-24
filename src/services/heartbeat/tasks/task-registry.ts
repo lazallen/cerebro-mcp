@@ -20,6 +20,8 @@ export function createTaskRegistry(dependencies?: {
   rootDir?: string;
   /** Resolved system directory — use this instead of path.join(rootDir, 'system') */
   systemDir?: string;
+  /** WebclientApiClient for Slack Saved Items ingestion (Feature 020) */
+  slackSavedItemsApiClient?: any;
 }): TaskRegistry {
   const registry: TaskRegistry = new Map();
 
@@ -214,6 +216,49 @@ export function createTaskRegistry(dependencies?: {
         taskType: 'executor',
         error: (error as Error).message,
         message: 'Failed to register executor task handler',
+      });
+    }
+  }
+
+  // Register pipeline-archive task — sweeps terminal-state artifacts to done/ directories
+  if (resolvedSystemDir) {
+    try {
+      const { PipelineArchiveTask } = require('./pipeline-archive-task');
+      registry.set('pipeline-archive', new PipelineArchiveTask(resolvedSystemDir));
+      logger.debug({
+        operation: 'task_handler_registered',
+        taskType: 'pipeline-archive',
+        message: 'Registered pipeline-archive task handler',
+      });
+    } catch (error) {
+      logger.warn({
+        operation: 'task_handler_registration_error',
+        taskType: 'pipeline-archive',
+        error: (error as Error).message,
+        message: 'Failed to register pipeline-archive task handler',
+      });
+    }
+  }
+
+  // Register slack-saved-items-ingestion task (Feature 020)
+  if (dependencies?.slackSavedItemsApiClient && resolvedSystemDir) {
+    try {
+      const { SlackSavedItemsIngestionTask } = require('./slack-saved-items-ingestion-task');
+      registry.set(
+        'slack-saved-items-ingestion',
+        new SlackSavedItemsIngestionTask(dependencies.slackSavedItemsApiClient, resolvedSystemDir)
+      );
+      logger.debug({
+        operation: 'task_handler_registered',
+        taskType: 'slack-saved-items-ingestion',
+        message: 'Registered slack-saved-items-ingestion task handler',
+      });
+    } catch (error) {
+      logger.warn({
+        operation: 'task_handler_registration_error',
+        taskType: 'slack-saved-items-ingestion',
+        error: (error as Error).message,
+        message: 'Failed to register slack-saved-items-ingestion task handler',
       });
     }
   }

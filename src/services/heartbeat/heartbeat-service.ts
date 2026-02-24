@@ -8,6 +8,8 @@ import { createTaskRegistry } from './tasks/task-registry';
 import type { HeartbeatConfig, TaskExecutionRecord } from '../../types/heartbeat';
 import type { TaskRegistry } from './types';
 import { logger } from '../../common/logger';
+import { SessionCredentialStorage } from '../slack-saved-items/session-credential-storage';
+import { WebclientApiClient } from '../slack-saved-items/webclient-api-client';
 
 /**
  * HeartbeatService orchestrates task scheduling, configuration management, and execution
@@ -17,6 +19,7 @@ export class HeartbeatService {
   private scheduler: Scheduler | null = null;
   private taskRegistry: TaskRegistry | null = null;
   private isRunning = false;
+  private slackSavedItemsApiClient: WebclientApiClient | undefined;
 
   constructor(
     private configPath: string,
@@ -29,6 +32,14 @@ export class HeartbeatService {
     }
   ) {
     this.configLoader = new ConfigLoader(configPath);
+
+    // Instantiate Slack Saved Items API client if credentials file exists (graceful on absence)
+    try {
+      const credStorage = new SessionCredentialStorage();
+      this.slackSavedItemsApiClient = new WebclientApiClient(credStorage);
+    } catch {
+      // Non-fatal: service works without Slack saved-items integration
+    }
   }
 
   /**
@@ -79,6 +90,7 @@ export class HeartbeatService {
         microsoftService: this.dependencies?.microsoftService,
         rootDir: config.rootDir,
         systemDir,
+        slackSavedItemsApiClient: this.slackSavedItemsApiClient,
       });
 
       // Initialize scheduler
@@ -266,6 +278,7 @@ export class HeartbeatService {
         microsoftService: this.dependencies?.microsoftService,
         rootDir: newConfig.rootDir,
         systemDir: reloadedSystemDir,
+        slackSavedItemsApiClient: this.slackSavedItemsApiClient,
       });
 
       // Create new scheduler with updated registry

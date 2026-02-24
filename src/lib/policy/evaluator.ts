@@ -162,8 +162,15 @@ function eventToEvalObject(
     passCount: event.passCount,
     // Support legacy "subject" field references in policy YAML
     subject: event.title,
-    // Support "from.email" path for email events
-    from: event.sourceData?.from ?? { email: event.author },
+    // Support "from.email" path for email events.
+    // Normalise to { email, name } regardless of whether sourceData uses "address" or "email".
+    from: (() => {
+      const raw = event.sourceData?.from as Record<string, string> | undefined;
+      return {
+        email: raw?.address ?? raw?.email ?? event.author,
+        name: raw?.name ?? '',
+      };
+    })(),
     bodyPreview: event.snippet,
   };
 

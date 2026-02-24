@@ -89,6 +89,24 @@
       "config": {
         "batchSize": 50
       }
+    },
+    {
+      "id": "pipeline-archive-nightly",
+      "name": "Nightly Pipeline Archiving Sweep",
+      "type": "pipeline-archive",
+      "schedule": "0 3 * * *",
+      "enabled": true,
+      "config": {}
+    },
+    {
+      "id": "slack-saved-items-ingestion-15min",
+      "name": "Slack Saved Items Ingestion (Every 15 Minutes)",
+      "type": "slack-saved-items-ingestion",
+      "schedule": "*/15 * * * *",
+      "enabled": false,
+      "config": {
+        "markAsComplete": true
+      }
     }
   ]
 }
