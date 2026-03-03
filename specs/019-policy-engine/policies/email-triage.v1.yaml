@@ -212,10 +212,10 @@ rules:
     actions:
       - type: CATEGORY
         name: "${defaults.categories.triageAction}"
-      - type: CREATE_TASK
-        template: action_required
       - type: FLAG
         flagStatus: flagged
+      - type: ASK_HUMAN
+        question: "This email appears to require action. What would you like to do?"
     terminal: true
 
   # ----------------------------

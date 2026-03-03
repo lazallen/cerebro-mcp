@@ -974,7 +974,11 @@ export class MicrosoftService implements BaseService {
       params: {
         $top: count.toString(),
         $select:
-          'id,internetMessageId,conversationId,subject,from,toRecipients,receivedDateTime,body,bodyPreview,isRead,hasAttachments,flag',
+          'id,internetMessageId,conversationId,subject,from,toRecipients,receivedDateTime,body,bodyPreview,isRead,hasAttachments,flag,microsoft.graph.eventMessage/meetingMessageType',
+        // Expand the linked calendar event for meeting invite messages to get
+        // start/end times, recurrence type, attendees, and location. For
+        // non-meeting emails Graph simply omits the expanded property.
+        $expand: 'microsoft.graph.eventMessage/event($select=id,type,start,end,attendees,location)',
         $filter: 'isRead eq false',
         $orderby: 'receivedDateTime desc',
       },
@@ -1013,6 +1017,204 @@ export class MicrosoftService implements BaseService {
       method: 'PATCH',
       body: { isRead },
     });
+  }
+
+  /**
+   * Respond to a calendar meeting invite email.
+   * Expands the associated calendar event from the message, then accepts/declines/tentatively accepts it.
+   * @param messageId - Graph message ID for the meeting invite email
+   * @param response - The response to send
+   */
+  public async respondToMeetingInviteEmail(
+    messageId: string,
+    response: 'accepted' | 'declined' | 'tentativelyAccepted'
+  ): Promise<void> {
+    // Fetch the message with the associated calendar event expanded.
+    // Note: $select must only reference base Message properties; meetingMessageType
+    // is eventMessage-only and causes a 400 if included in $select.
+    const msgResponse = await this.apiClient.request(`/me/messages/${messageId}`, {
+      method: 'GET',
+      params: {
+        $expand: 'microsoft.graph.eventMessage/event($select=id)',
+      },
+    });
+
+    const data = msgResponse.data as { event?: { id?: string } };
+    const calendarEventId = data.event?.id;
+
+    if (!calendarEventId) {
+      throw new Error(
+        `Could not resolve calendar event ID from meeting invite message ${messageId}`
+      );
+    }
+
+    const eventResponseClient = new EventResponseClient(this.apiClient);
+    const request: EventResponseRequest = {
+      eventId: calendarEventId,
+      response,
+      sendResponse: true,
+    };
+
+    switch (response) {
+      case 'accepted':
+        await eventResponseClient.accept(request);
+        break;
+      case 'declined':
+        await eventResponseClient.decline(request);
+        break;
+      case 'tentativelyAccepted':
+        await eventResponseClient.tentativelyAccept(request);
+        break;
+    }
+  }
+
+  /**
+   * Get the start/end datetimes and recurrence metadata for the calendar event
+   * linked to a meeting invite message. Returns null if the event cannot be resolved.
+   *
+   * Prefers the `startDateTime`/`endDateTime` fields on the eventMessage itself because
+   * for recurring series, the expanded `event.start.dateTime` returns "0001-01-01" (a Graph
+   * sentinel meaning "no specific occurrence date"), whereas the message-level fields carry
+   * the actual occurrence time.
+   */
+  public async getEventDetailsForMessage(
+    messageId: string
+  ): Promise<{ startDateTime: string; endDateTime: string; eventId?: string; isRecurring?: boolean } | null> {
+    // Expand the linked calendar event to get start/end/type.
+    // We also select seriesMasterId so that for recurring occurrences we can
+    // pass the series master ID directly to getRecurringConflicts.
+    // Note: $select for EventMessage-specific fields (startDateTime/endDateTime)
+    // cannot be used on the base /messages/{id} endpoint — Graph raises a 400.
+    const msgResponse = await this.apiClient.request(`/me/messages/${messageId}`, {
+      method: 'GET',
+      params: {
+        $expand: 'microsoft.graph.eventMessage/event($select=id,type,seriesMasterId,start,end)',
+      },
+    });
+
+    const data = msgResponse.data as {
+      event?: {
+        id?: string;
+        type?: string;        // singleInstance | seriesMaster | occurrence | exception
+        seriesMasterId?: string;
+        start?: { dateTime: string; timeZone?: string };
+        end?:   { dateTime: string; timeZone?: string };
+      };
+    };
+
+    const evStart = data.event?.start?.dateTime;
+    const evEnd   = data.event?.end?.dateTime;
+    if (!evStart || !evEnd || evStart.startsWith('0001-01-01')) {
+      return null;
+    }
+
+    const isRecurring = data.event?.type != null && data.event.type !== 'singleInstance';
+    // Prefer seriesMasterId for the recurring-conflicts lookup; fall back to event id.
+    const eventId = data.event?.seriesMasterId ?? data.event?.id;
+
+    return { startDateTime: evStart, endDateTime: evEnd, eventId, isRecurring };
+  }
+
+  /**
+   * Fetch calendar events within a UTC datetime range.
+   * @param maxResults - Max number of events to return (default 50; use ~200 for multi-month scans)
+   */
+  public async getCalendarView(
+    startDateTime: string,
+    endDateTime: string,
+    maxResults = 50
+  ): Promise<Array<{ subject: string; startDateTime: string; endDateTime: string; isAllDay: boolean; showAs: string; id?: string; seriesMasterId?: string }>> {
+    const response = await this.apiClient.request('/me/calendarView', {
+      method: 'GET',
+      params: {
+        startDateTime,
+        endDateTime,
+        $select: 'subject,start,end,isAllDay,showAs,id,seriesMasterId',
+        $orderby: 'start/dateTime',
+        $top: String(maxResults),
+      },
+    });
+
+    const data = response.data as {
+      value?: Array<{
+        subject?: string;
+        start?: { dateTime: string };
+        end?:   { dateTime: string };
+        isAllDay?: boolean;
+        showAs?: string;
+        id?: string;
+        seriesMasterId?: string;
+      }>;
+    };
+
+    return (data.value ?? []).map(e => ({
+      subject:         e.subject ?? '(No title)',
+      startDateTime:   e.start?.dateTime ?? '',
+      endDateTime:     e.end?.dateTime   ?? '',
+      isAllDay:        e.isAllDay ?? false,
+      showAs:          e.showAs ?? 'busy',
+      id:              e.id,
+      seriesMasterId:  e.seriesMasterId,
+    }));
+  }
+
+  /**
+   * Scan the next 90 days for occurrences of a recurring meeting series and
+   * identify which have scheduling conflicts with other calendar events.
+   */
+  public async getRecurringConflicts(
+    seriesMasterId: string,
+    meetingStart: string,
+    _meetingEnd: string,
+  ): Promise<{ occurrencesChecked: number; conflictCount: number; conflicts: Array<{ date: string; conflictingSubject: string }> }> {
+    const rangeStart = new Date().toISOString();
+    const rangeEnd   = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString();
+
+    const events = await this.getCalendarView(rangeStart, rangeEnd, 200);
+
+    // Occurrences of our series (seriesMasterId links back to the master)
+    const occurrences = events.filter(ev => ev.seriesMasterId === seriesMasterId);
+
+    // If Graph didn't return any occurrences via seriesMasterId, check whether
+    // the first occurrence date matches (some tenants omit seriesMasterId).
+    // Fall back to looking at the occurrence matching meetingStart exactly.
+    if (occurrences.length === 0) {
+      const firstOcc = events.find(ev => ev.startDateTime === meetingStart);
+      if (firstOcc) occurrences.push(firstOcc);
+    }
+
+    const conflictsByDate = new Map<string, string>();
+
+    for (const occ of occurrences) {
+      if (!occ.startDateTime || !occ.endDateTime) continue;
+
+      const conflicting = events.filter(ev =>
+        ev.id !== occ.id &&
+        ev.showAs !== 'free' &&
+        !ev.isAllDay &&
+        occ.startDateTime < ev.endDateTime &&
+        ev.startDateTime < occ.endDateTime
+      );
+
+      if (conflicting.length > 0) {
+        const date = occ.startDateTime.slice(0, 10);
+        // Record the first conflicting event per occurrence date
+        if (!conflictsByDate.has(date)) {
+          conflictsByDate.set(date, conflicting[0].subject);
+        }
+      }
+    }
+
+    const conflicts = [...conflictsByDate.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .slice(0, 8)
+      .map(([date, conflictingSubject]) => ({ date, conflictingSubject }));
+
+    return {
+      occurrencesChecked: occurrences.length,
+      conflictCount:      conflictsByDate.size,
+      conflicts,
+    };
   }
 
   /**

@@ -46,28 +46,25 @@ const IntentTypeSchema = z.enum([
 
 const UrgencySchema = z.enum(['NOW', 'THIS_WEEK', 'SOMEDAY']);
 const RiskSchema = z.enum(['LOW', 'MEDIUM', 'HIGH']);
-const ActionTypeSchema = z.enum([
-  'LABEL',
+const PolicyActionTypeSchema = z.enum([
+  'TRIAGE',
   'MOVE',
   'FLAG',
+  'LABEL',
   'CREATE_TASK',
-  'CREATE_READING_PACK',
-  'DRAFT_REPLY',
-  'ASK_HUMAN',
-  'CATEGORY',
-  'ENRICH_CONFLUENCE',
+  'JOURNAL_NOTE',
+  'RESPOND_CALENDAR',
+  'ARCHIVE',
 ]);
 
 const RuleActionSchema = z.object({
-  type: ActionTypeSchema,
+  type: PolicyActionTypeSchema,
   name: z.string().optional(),
   folder: z.string().optional(),
   folderId: z.string().optional(),
-  template: z.string().optional(),
-  notePath: z.string().optional(),
   question: z.string().optional(),
   flagStatus: z.string().optional(),
-  requiresApproval: z.boolean().optional(),
+  calendarResponse: z.enum(['accepted', 'declined', 'tentativelyAccepted']).optional(),
 });
 
 const ClassificationSchema = z.object({
@@ -98,7 +95,7 @@ const PolicyDefaultsSchema = z.object({
   senderBlocklistDomains: z.array(z.string()).optional(),
   conflictResolution: z
     .object({
-      askHumanBlocksMoveToArchive: z.boolean(),
+      triageBlocksMove: z.boolean(),
     })
     .optional(),
 });

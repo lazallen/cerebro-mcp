@@ -1,31 +1,29 @@
 /**
  * Policy evaluator — pure evaluation, no I/O.
- * Given a policy and a batch of triage events, returns one PolicyDecision per event.
- * Deterministic: same input always produces same output.
+ * Given a policy and a batch of items, returns one EvalResult per item.
+ * Deterministic: same input always produces the same output.
  */
 
 import type {
   Policy,
   PolicyDefaults,
   PolicyRule,
-  TriageEvent,
-  PolicyDecision,
+  RuleAction,
   Classification,
-  ResolvedAction,
+  EvalResult,
   RuleTraceEntry,
   IntentType,
   UrgencyLevel,
   RiskLevel,
+  PolicyActionType,
 } from './types';
+import type { Item, Action } from '../item/types';
 import { evaluatePredicate } from './predicate';
-import { resolveAction } from './idempotency';
-import { applySafetyGates } from './safety-gates';
-import { resolveConflicts } from './conflict-resolver';
 
-/**
- * Resolve ${defaults.X.Y} template references in a string value.
- * Walks the defaults object by dot-separated path.
- */
+// ---------------------------------------------------------------------------
+// Template resolution
+// ---------------------------------------------------------------------------
+
 function resolveTemplate(value: string, defaults: PolicyDefaults): string {
   return value.replace(/\$\{defaults\.([^}]+)\}/g, (_match, dotPath: string) => {
     const parts = dotPath.split('.');
@@ -34,31 +32,27 @@ function resolveTemplate(value: string, defaults: PolicyDefaults): string {
       if (current !== null && typeof current === 'object') {
         current = (current as Record<string, unknown>)[part];
       } else {
-        return _match; // path not found — return original
+        return _match;
       }
     }
     return typeof current === 'string' ? current : _match;
   });
 }
 
-/**
- * Resolve template strings in all string fields of a ResolvedAction.
- */
-function resolveActionTemplates(action: ResolvedAction, defaults: PolicyDefaults): ResolvedAction {
+function resolveActionTemplates(action: RuleAction, defaults: PolicyDefaults): RuleAction {
   const resolve = (v: string | undefined) => (v ? resolveTemplate(v, defaults) : v);
   return {
     ...action,
     name: resolve(action.name),
     folder: resolve(action.folder),
     question: resolve(action.question),
-    notePath: resolve(action.notePath),
-    template: resolve(action.template),
   };
 }
 
-/**
- * Default classification when no rule matches or classification is incomplete.
- */
+// ---------------------------------------------------------------------------
+// Default classification
+// ---------------------------------------------------------------------------
+
 const DEFAULT_CLASSIFICATION: Classification = {
   intent: 'UNKNOWN',
   urgency: 'SOMEDAY',
@@ -67,27 +61,82 @@ const DEFAULT_CLASSIFICATION: Classification = {
   rationale: ['No rule matched'],
 };
 
-/**
- * Sort rules by priority descending. Ties are broken by index (stable sort).
- */
 function sortRules(rules: PolicyRule[]): PolicyRule[] {
   return [...rules].sort((a, b) => b.priority - a.priority);
 }
 
+// ---------------------------------------------------------------------------
+// Item → flat eval object
+// ---------------------------------------------------------------------------
+
 /**
- * Evaluate a single event against an ordered list of rules.
- * Returns the trace and matched actions.
+ * Convert an Item to a flat evaluation object for predicate path resolution.
+ * Merges in human answer context from any resolved TRIAGE action.
  */
-function evaluateEvent(
+function itemToEvalObject(item: Item): Record<string, unknown> {
+  // Extract enrichment data from the most recent ENHANCE action
+  const enhance = [...item.actions]
+    .reverse()
+    .find((a): a is Action => a.type === 'ENHANCE' && a.status === 'done');
+
+  // Extract human answer from the most recent resolved TRIAGE action
+  const triageResolved = [...item.actions]
+    .reverse()
+    .find((a): a is Action => a.type === 'TRIAGE' && a.status === 'done' && !!a.answer);
+
+  const obj: Record<string, unknown> = {
+    id: item.id,
+    type: item.type,
+    source: item.source,
+    status: item.status,
+    createdAt: item.createdAt,
+    signals: item.signals,
+    extracted: {
+      intent: enhance?.intent,
+      confidence: enhance?.confidence,
+      summary: enhance?.summary,
+      entities: enhance?.entities,
+    },
+    triageAnswer: triageResolved?.answer,
+  };
+
+  if (item.type === 'MESSAGE') {
+    const msg = item;
+    obj['subject'] = msg.subject;
+    obj['title'] = msg.subject;
+    obj['body'] = msg.body;
+    obj['from'] = {
+      email: msg.from ?? '',
+      name: '',
+    };
+    obj['to'] = msg.to;
+    obj['date'] = msg.date;
+    obj['channel'] = msg.channel;
+    obj['user'] = msg.user;
+    obj['author'] = msg.from ?? '';
+    obj['snippet'] = msg.body ? msg.body.slice(0, 500) : '';
+  } else {
+    obj['title'] = item.title;
+    obj['start'] = item.start;
+    obj['end'] = item.end;
+    obj['organizer'] = item.organizer;
+    obj['attendees'] = item.attendees;
+    obj['isCancelled'] = item.isCancelled;
+    obj['snippet'] = item.description ? item.description.slice(0, 500) : '';
+    obj['author'] = item.organizer ?? '';
+  }
+
+  return obj;
+}
+
+// ---------------------------------------------------------------------------
+// Core evaluation
+// ---------------------------------------------------------------------------
+
+function evaluateItem(
   policy: Policy,
-  event: TriageEvent,
-  humanAnswers?: Map<string, string>
-): {
-  classification: Classification;
-  actions: ResolvedAction[];
-  trace: RuleTraceEntry[];
-  terminal: boolean;
-} {
+  item: Item
+): { classification: Classification; actions: RuleAction[]; trace: RuleTraceEntry[] } {
   const sortedRules = sortRules(policy.rules);
 
   let classification: Classification = { ...DEFAULT_CLASSIFICATION };
@@ -95,101 +144,38 @@ function evaluateEvent(
     classification.risk = policy.defaults.unknownIntentRisk;
   }
 
-  const allActions: ResolvedAction[] = [];
+  const allActions: RuleAction[] = [];
   const trace: RuleTraceEntry[] = [];
-  let terminal = false;
 
-  // Build evaluation object — merge event with human answer context if available
-  const evalTarget: Record<string, unknown> = eventToEvalObject(event, humanAnswers);
+  const evalTarget = itemToEvalObject(item);
 
   for (const rule of sortedRules) {
     const predicateResult = evaluatePredicate(rule.when, evalTarget);
 
-    const traceEntry: RuleTraceEntry = {
+    trace.push({
       ruleId: rule.id,
       priority: rule.priority,
       matched: predicateResult.matched,
       predicateResult,
       terminal: rule.terminal,
-    };
-    trace.push(traceEntry);
+    });
 
     if (predicateResult.matched) {
-      // Apply classification override
       if (rule.setClassification) {
         classification = mergeClassification(classification, rule.setClassification);
       }
 
-      // Resolve actions with idempotency keys, then interpolate ${defaults.*} templates
       for (const action of rule.actions) {
-        const resolved = resolveAction(
-          action,
-          event.eventId,
-          policy.id,
-          policy.version
-        ) as ResolvedAction;
-        allActions.push(resolveActionTemplates(resolved, policy.defaults));
+        allActions.push(resolveActionTemplates(action, policy.defaults));
       }
 
-      if (rule.terminal) {
-        terminal = true;
-        break;
-      }
+      if (rule.terminal) break;
     }
   }
 
-  return { classification, actions: allActions, trace, terminal };
+  return { classification, actions: allActions, trace };
 }
 
-/**
- * Convert a TriageEvent to a flat evaluation object for predicate path resolution.
- * Merges in human answer context if provided.
- */
-function eventToEvalObject(
-  event: TriageEvent,
-  humanAnswers?: Map<string, string>
-): Record<string, unknown> {
-  const obj: Record<string, unknown> = {
-    eventId: event.eventId,
-    source: event.source,
-    title: event.title,
-    author: event.author,
-    receivedAt: event.receivedAt,
-    snippet: event.snippet,
-    status: event.status,
-    signals: event.signals,
-    extracted: event.extracted,
-    passCount: event.passCount,
-    // Support legacy "subject" field references in policy YAML
-    subject: event.title,
-    // Support "from.email" path for email events.
-    // Normalise to { email, name } regardless of whether sourceData uses "address" or "email".
-    from: (() => {
-      const raw = event.sourceData?.from as Record<string, string> | undefined;
-      return {
-        email: raw?.address ?? raw?.email ?? event.author,
-        name: raw?.name ?? '',
-      };
-    })(),
-    bodyPreview: event.snippet,
-  };
-
-  // Merge source-specific data at top level for predicate access
-  if (event.sourceData) {
-    obj['sourceData'] = event.sourceData;
-  }
-
-  // Inject human answers as top-level context fields
-  if (humanAnswers && humanAnswers.size > 0) {
-    obj['humanAnswers'] = Object.fromEntries(humanAnswers);
-  }
-
-  return obj;
-}
-
-/**
- * Merge a partial classification override onto the current classification.
- */
 function mergeClassification(
   current: Classification,
   override: Partial<Classification>
@@ -203,64 +189,100 @@ function mergeClassification(
   };
 }
 
+// ---------------------------------------------------------------------------
+// Safety gates (inline — no separate module needed)
+// ---------------------------------------------------------------------------
+
+function applySafetyGates(
+  classification: Classification,
+  actions: RuleAction[],
+  policy: Policy
+): RuleAction[] {
+  const result = [...actions];
+  const hasTriage = result.some((a) => a.type === 'TRIAGE');
+
+  // Low-confidence gate
+  if (classification.confidence < policy.defaults.approvalThreshold && !hasTriage) {
+    result.push({
+      type: 'TRIAGE' as PolicyActionType,
+      question: 'Confidence is below the approval threshold. What should be done with this item?',
+    });
+  }
+
+  // High-risk gate
+  const hasTriageNow = result.some((a) => a.type === 'TRIAGE');
+  if (classification.risk === 'HIGH' && !hasTriageNow) {
+    result.push({
+      type: 'TRIAGE' as PolicyActionType,
+      question: 'This item is classified as HIGH risk. Please review and decide.',
+    });
+  }
+
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// Conflict resolution (inline)
+// ---------------------------------------------------------------------------
+
+function resolveConflicts(actions: RuleAction[], policy: Policy): RuleAction[] {
+  const hasTriage = actions.some((a) => a.type === 'TRIAGE');
+  const blockMove = policy.defaults.conflictResolution?.triageBlocksMove !== false;
+
+  if (!hasTriage || !blockMove) return actions;
+
+  // Suppress MOVE when TRIAGE is present — don't move email before human review
+  return actions.filter((a) => a.type !== 'MOVE');
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
 /**
- * Evaluate a batch of triage events against a versioned policy.
- * Returns one PolicyDecision per event in input order.
- * Never throws — individual failures produce an UNKNOWN decision with the error in the trace.
- *
- * @param policy Loaded, validated Policy
- * @param events Array of TriageEvent artifacts to evaluate
- * @param humanAnswers Optional map of eventId → human answer for re-evaluation with context
+ * Evaluate a batch of items against a versioned policy.
+ * Returns one EvalResult per item in input order.
+ * Never throws — individual failures produce a safe UNKNOWN/TRIAGE fallback.
  */
-export function evaluate(
-  policy: Policy,
-  events: TriageEvent[],
-  humanAnswers?: Map<string, string>
-): PolicyDecision[] {
-  const timestamp = new Date().toISOString();
-
-  return events.map((event) => {
+export function evaluate(policy: Policy, items: Item[]): EvalResult[] {
+  return items.map((item) => {
     try {
-      const { classification, actions, trace, terminal } = evaluateEvent(
-        policy,
-        event,
-        humanAnswers
-      );
+      const evalResult = evaluateItem(policy, item);
+      let { classification, actions } = evalResult;
+      const { trace } = evalResult;
 
-      let decision: PolicyDecision = {
-        eventId: event.eventId,
-        policyId: policy.id,
-        policyVersion: policy.version,
-        timestamp,
-        classification,
-        actions,
-        trace,
-        terminal,
-      };
+      actions = applySafetyGates(classification, actions, policy);
+      actions = resolveConflicts(actions, policy);
 
-      // Post-evaluation: apply safety gates then resolve action conflicts
-      decision = applySafetyGates(decision, policy);
-      decision = resolveConflicts(decision, policy);
+      // Fallback: if still no actions, ask human
+      if (actions.length === 0) {
+        actions = [
+          {
+            type: 'TRIAGE' as PolicyActionType,
+            question: 'No policy rule matched — please review.',
+          },
+        ];
+      }
 
-      return decision;
+      return { itemId: item.id, classification, nextActions: actions, trace };
     } catch (err) {
-      // Evaluation error — return a safe UNKNOWN decision
       return {
-        eventId: event.eventId,
-        policyId: policy.id,
-        policyVersion: policy.version,
-        timestamp,
+        itemId: item.id,
         classification: {
-          intent: 'UNKNOWN',
-          urgency: 'SOMEDAY',
-          risk: 'HIGH',
+          intent: 'UNKNOWN' as IntentType,
+          urgency: 'SOMEDAY' as UrgencyLevel,
+          risk: 'HIGH' as RiskLevel,
           confidence: 0,
           rationale: [`Evaluation error: ${(err as Error).message}`],
         },
-        actions: [],
+        nextActions: [
+          {
+            type: 'TRIAGE' as PolicyActionType,
+            question: `Evaluation error: ${(err as Error).message}`,
+          },
+        ],
         trace: [],
-        terminal: false,
-      } satisfies PolicyDecision;
+      };
     }
   });
 }

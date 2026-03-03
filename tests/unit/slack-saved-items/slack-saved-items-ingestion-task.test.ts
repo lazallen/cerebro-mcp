@@ -1,5 +1,6 @@
 /**
  * Unit tests for SlackSavedItemsIngestionTask (Feature 020)
+ * Updated for new item-per-file design (MessageItem, system/messages/)
  */
 
 import * as path from 'path';
@@ -13,6 +14,7 @@ import {
 import type { WebclientApiClient } from '../../../src/services/slack-saved-items/webclient-api-client';
 import type { RawSavedItem, RawSavedListResponse } from '../../../src/types/slack-saved-items';
 import type { TaskConfig } from '../../../src/types/heartbeat';
+import type { SavedItem } from '../../../src/types/slack-saved-items';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -72,12 +74,12 @@ function makeTaskConfig(overrides: Partial<{ config: Record<string, unknown> }> 
 
 describe('SlackSavedItemsIngestionTask', () => {
   let tmpDir: string;
-  let triageDir: string;
+  let messagesDir: string;
 
   beforeEach(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebro-ingestion-'));
-    triageDir = path.join(tmpDir, 'triage');
-    await fs.mkdir(triageDir, { recursive: true });
+    messagesDir = path.join(tmpDir, 'messages');
+    await fs.mkdir(messagesDir, { recursive: true });
   });
 
   afterEach(async () => {
@@ -87,21 +89,23 @@ describe('SlackSavedItemsIngestionTask', () => {
 
   // ─── Happy path ────────────────────────────────────────────────────────────
 
-  it('writes a TriageEvent for each uncompleted item', async () => {
+  it('writes a MessageItem YAML for each uncompleted item', async () => {
     const apiClient = makeApiClient();
     apiClient.savedList.mockResolvedValueOnce(makeListResponse([makeRaw()]));
 
     const task = new SlackSavedItemsIngestionTask(apiClient, tmpDir);
     await task.execute(makeTaskConfig());
 
-    const files = await fs.readdir(triageDir);
+    const files = await fs.readdir(messagesDir);
     expect(files).toHaveLength(1);
-    expect(files[0]).toMatch(/\.md$/);
+    expect(files[0]).toMatch(/\.yaml$/);
   });
 
   it('calls savedUpdate for each item when markAsComplete is true', async () => {
     const apiClient = makeApiClient();
-    apiClient.savedList.mockResolvedValueOnce(makeListResponse([makeRaw(), makeRaw({ item_id: 'C9999', ts: '1740000001.000000' })]));
+    apiClient.savedList.mockResolvedValueOnce(
+      makeListResponse([makeRaw(), makeRaw({ item_id: 'C9999', ts: '1740000001.000000' })])
+    );
 
     const task = new SlackSavedItemsIngestionTask(apiClient, tmpDir);
     await task.execute(makeTaskConfig({ config: { markAsComplete: true } }));
@@ -121,16 +125,17 @@ describe('SlackSavedItemsIngestionTask', () => {
 
   it('skips completed items (only processes uncompleted)', async () => {
     const apiClient = makeApiClient();
-    apiClient.savedList.mockResolvedValueOnce(makeListResponse([
-      makeRaw({ state: 'uncompleted' }),
-      makeRaw({ item_id: 'C_DONE', ts: '9999999999.000000', state: 'completed' }),
-    ]));
+    apiClient.savedList.mockResolvedValueOnce(
+      makeListResponse([
+        makeRaw({ state: 'uncompleted' }),
+        makeRaw({ item_id: 'C_DONE', ts: '9999999999.000000', state: 'completed' }),
+      ])
+    );
 
     const task = new SlackSavedItemsIngestionTask(apiClient, tmpDir);
     await task.execute(makeTaskConfig());
 
-    // Only 1 event written (the uncompleted one)
-    const files = await fs.readdir(triageDir);
+    const files = await fs.readdir(messagesDir);
     expect(files).toHaveLength(1);
   });
 
@@ -143,7 +148,7 @@ describe('SlackSavedItemsIngestionTask', () => {
     const task = new SlackSavedItemsIngestionTask(apiClient, tmpDir);
     await expect(task.execute(makeTaskConfig())).resolves.not.toThrow();
 
-    const files = await fs.readdir(triageDir);
+    const files = await fs.readdir(messagesDir);
     expect(files).toHaveLength(0);
   });
 
@@ -154,7 +159,7 @@ describe('SlackSavedItemsIngestionTask', () => {
     const task = new SlackSavedItemsIngestionTask(apiClient, tmpDir);
     await expect(task.execute(makeTaskConfig())).resolves.not.toThrow();
 
-    const files = await fs.readdir(triageDir);
+    const files = await fs.readdir(messagesDir);
     expect(files).toHaveLength(0);
   });
 
@@ -162,10 +167,12 @@ describe('SlackSavedItemsIngestionTask', () => {
 
   it('continues to next item when savedUpdate fails for one item', async () => {
     const apiClient = makeApiClient();
-    apiClient.savedList.mockResolvedValueOnce(makeListResponse([
-      makeRaw({ item_id: 'C_FAIL', ts: '1740000001.000000' }),
-      makeRaw({ item_id: 'C_OK', ts: '1740000002.000000' }),
-    ]));
+    apiClient.savedList.mockResolvedValueOnce(
+      makeListResponse([
+        makeRaw({ item_id: 'C_FAIL', ts: '1740000001.000000' }),
+        makeRaw({ item_id: 'C_OK', ts: '1740000002.000000' }),
+      ])
+    );
     apiClient.savedUpdate
       .mockRejectedValueOnce(new Error('transient error'))
       .mockResolvedValueOnce(undefined);
@@ -173,25 +180,20 @@ describe('SlackSavedItemsIngestionTask', () => {
     const task = new SlackSavedItemsIngestionTask(apiClient, tmpDir);
     await expect(task.execute(makeTaskConfig())).resolves.not.toThrow();
 
-    // Both items should have events written
-    const files = await fs.readdir(triageDir);
+    const files = await fs.readdir(messagesDir);
     expect(files).toHaveLength(2);
-    // Second savedUpdate still called despite first failing
     expect(apiClient.savedUpdate).toHaveBeenCalledTimes(2);
   });
 
-  // ─── buildTriageEvent ─────────────────────────────────────────────────────
+  // ─── buildMessageItem ─────────────────────────────────────────────────────
 
-  describe('buildTriageEvent()', () => {
-    it('builds correct eventId from dateCreated + ts', () => {
-      const apiClient = makeApiClient();
-      const task = new SlackSavedItemsIngestionTask(apiClient, tmpDir);
-
-      const item = {
+  describe('buildMessageItem()', () => {
+    function makeSavedItem(overrides: Partial<SavedItem> = {}): SavedItem {
+      return {
         itemId: 'C1234',
         itemType: 'message',
         ts: '1740000000.123456',
-        state: 'uncompleted' as const,
+        state: 'uncompleted',
         dateCreated: 1740000000,
         dateDue: 0,
         dateCompleted: 0,
@@ -200,77 +202,67 @@ describe('SlackSavedItemsIngestionTask', () => {
         isArchived: false,
         messageText: 'Hello world, please follow up on this.',
         userId: 'U123',
+        ...overrides,
       };
+    }
 
-      const event = task.buildTriageEvent(item);
-
-      expect(event.eventId).toBe('20250219-slack-1740000000-123456');
-      expect(event.source).toBe('slack-saved');
-      expect(event.title).toBe('Hello world, please follow up on this.');
-      expect(event.author).toBe('U123');
-      expect(event.snippet).toBe('Hello world, please follow up on this.');
-      expect(event.signals.isAutomated).toBe(false);
-      expect(event.signals.isBulk).toBe(false);
-      expect(event.signals.asksForAction).toBe(true); // "please follow up"
-    });
-
-    it('uses fallback title when messageText is empty', () => {
+    it('builds MessageItem with correct id and fields', () => {
       const apiClient = makeApiClient();
       const task = new SlackSavedItemsIngestionTask(apiClient, tmpDir);
 
-      const item = {
-        itemId: 'C1234',
-        itemType: 'message',
-        ts: '1740000000.123456',
-        state: 'uncompleted' as const,
-        dateCreated: 1740000000,
-        dateDue: 0, dateCompleted: 0, dateUpdated: 1740000000,
-        dateSnoozedUntil: 0, isArchived: false,
-        messageText: '',
-        userId: 'U123',
-      };
+      const item = makeSavedItem();
+      const stableId = 'slack-C1234-1740000000.123456';
+      const msg = task.buildMessageItem(item, stableId);
 
-      const event = task.buildTriageEvent(item);
-      expect(event.title).toBe('Slack message 1740000000.123456');
+      expect(msg.id).toBe(stableId);
+      expect(msg.source).toBe('slack-saved');
+      expect(msg.type).toBe('MESSAGE');
+      expect(msg.body).toBe('Hello world, please follow up on this.');
+      expect(msg.user).toBe('U123');
+      expect(msg.status).toBe('inbox');
+    });
+
+    it('detects isActionRequest correctly for action words', () => {
+      const apiClient = makeApiClient();
+      const task = new SlackSavedItemsIngestionTask(apiClient, tmpDir);
+
+      const item = makeSavedItem({ messageText: 'Hello world, please follow up on this.' });
+      const msg = task.buildMessageItem(item, 'test-id');
+
+      expect(msg.signals.isActionRequest).toBe(true);
+    });
+
+    it('uses empty string body when messageText is empty', () => {
+      const apiClient = makeApiClient();
+      const task = new SlackSavedItemsIngestionTask(apiClient, tmpDir);
+
+      const item = makeSavedItem({ messageText: '' });
+      const msg = task.buildMessageItem(item, 'test-id');
+      expect(msg.body).toBe('');
     });
 
     it('detects mentionsMoney correctly', () => {
       const apiClient = makeApiClient();
       const task = new SlackSavedItemsIngestionTask(apiClient, tmpDir);
 
-      const item = {
-        itemId: 'C1', itemType: 'message', ts: '1740000000.000000',
-        state: 'uncompleted' as const, dateCreated: 1740000000,
-        dateDue: 0, dateCompleted: 0, dateUpdated: 1740000000,
-        dateSnoozedUntil: 0, isArchived: false,
-        messageText: 'Invoice for £500 attached', userId: 'U1',
-      };
-
-      const event = task.buildTriageEvent(item);
-      expect(event.signals.mentionsMoney).toBe(true);
+      const item = makeSavedItem({ messageText: 'Invoice for £500 attached' });
+      const msg = task.buildMessageItem(item, 'test-id');
+      expect(msg.signals.mentionsMoney).toBe(true);
     });
 
-    it('stores sourceData with itemId and ts', () => {
+    it('sets slackTimestamp from ts', () => {
       const apiClient = makeApiClient();
       const task = new SlackSavedItemsIngestionTask(apiClient, tmpDir);
 
-      const item = {
-        itemId: 'C9876', itemType: 'message', ts: '1740000000.000000',
-        state: 'uncompleted' as const, dateCreated: 1740000000,
-        dateDue: 0, dateCompleted: 0, dateUpdated: 1740000000,
-        dateSnoozedUntil: 0, isArchived: false,
-        messageText: 'Test', userId: 'U1',
-      };
-
-      const event = task.buildTriageEvent(item);
-      expect(event.sourceData?.['itemId']).toBe('C9876');
-      expect(event.sourceData?.['ts']).toBe('1740000000.000000');
+      const item = makeSavedItem({ ts: '1740000000.999999' });
+      const msg = task.buildMessageItem(item, 'test-id');
+      expect(msg.slackTimestamp).toBe('1740000000.999999');
     });
   });
 
   // ─── Idempotency ──────────────────────────────────────────────────────────
 
-  it('does not create duplicate TriageEvent for same item on second run', async () => {
+  it('does not create duplicate MessageItem for same item on second run', async () => {
     const apiClient = makeApiClient();
     apiClient.savedList
       .mockResolvedValueOnce(makeListResponse([makeRaw()]))
@@ -280,8 +272,8 @@ describe('SlackSavedItemsIngestionTask', () => {
     await task.execute(makeTaskConfig());
     await task.execute(makeTaskConfig());
 
-    const files = await fs.readdir(triageDir);
-    // saveEvent is idempotent — same eventId overwrites, so still only 1 file
+    const files = await fs.readdir(messagesDir);
+    // Same stable ID → same file, only 1 file written
     expect(files).toHaveLength(1);
   });
 });

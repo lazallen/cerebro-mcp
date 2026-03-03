@@ -69,24 +69,17 @@ export class HeartbeatService {
       // systemDir can be overridden in config to decouple it from rootDir
       // (e.g. rootDir = "./context" for vault, systemDir = "./system" for repo-local artifacts)
       const systemDir = config.systemDir ?? `${config.rootDir}/system`;
-      const eventsDir = `${systemDir}/triage`;
       const fs = await import('fs/promises');
       await Promise.all([
-        fs.mkdir(`${systemDir}/triage`, { recursive: true }),
-        fs.mkdir(`${systemDir}/decisions`, { recursive: true }),
-        fs.mkdir(`${systemDir}/human`, { recursive: true }),
-        fs.mkdir(`${systemDir}/runs`, { recursive: true }),
-        fs.mkdir(`${systemDir}/artifacts/tasks`, { recursive: true }),
-        fs.mkdir(`${systemDir}/artifacts/reading-packs`, { recursive: true }),
-        fs.mkdir(`${systemDir}/artifacts/drafts`, { recursive: true }),
-        fs.mkdir(`${systemDir}/context`, { recursive: true }),
+        fs.mkdir(`${systemDir}/messages`, { recursive: true }),
+        fs.mkdir(`${systemDir}/events`, { recursive: true }),
+        fs.mkdir(`${systemDir}/policies`, { recursive: true }),
       ]);
 
       // Initialize task registry with dependencies
       this.taskRegistry = createTaskRegistry({
         graphClient: this.dependencies?.graphClient,
         lfClient: this.dependencies?.lfClient,
-        eventsDir,
         microsoftService: this.dependencies?.microsoftService,
         rootDir: config.rootDir,
         systemDir,
@@ -274,7 +267,6 @@ export class HeartbeatService {
       this.taskRegistry = createTaskRegistry({
         graphClient: this.dependencies?.graphClient,
         lfClient: this.dependencies?.lfClient,
-        eventsDir: `${reloadedSystemDir}/triage`,
         microsoftService: this.dependencies?.microsoftService,
         rootDir: newConfig.rootDir,
         systemDir: reloadedSystemDir,

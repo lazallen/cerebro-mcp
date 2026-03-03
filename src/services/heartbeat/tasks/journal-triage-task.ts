@@ -905,9 +905,12 @@ export class JournalTriageTask implements TaskHandler {
       const htmlContent = this.convertPrepNotesToHtml(event, prepNotes);
 
       if (existingPage) {
+        // OneNote PATCH requires a body fragment, not a full HTML document
+        const bodyMatch = htmlContent.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+        const patchContent = bodyMatch ? bodyMatch[1].trim() : htmlContent;
         // Update existing page
         await this.retryOperation(
-          () => oneNoteClient.updatePageContent(existingPage.id, event.subject, htmlContent),
+          () => oneNoteClient.updatePageContent(existingPage.id, event.subject, patchContent),
           'updatePageContent'
         );
 

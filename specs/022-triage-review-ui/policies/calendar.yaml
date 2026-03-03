@@ -1,0 +1,61 @@
+# Calendar policy — Cerebro triage system
+# Handles: calendar events (source: calendar)
+id: calendar-triage
+version: 1.0.0
+
+defaults:
+  approvalThreshold: 0.75
+  claudeRecommendThreshold: 0.60
+  unknownIntentRisk: MEDIUM
+  conflictResolution:
+    triageBlocksMove: true
+
+rules:
+  - id: cancelled-skip
+    priority: 1000
+    when:
+      field: "isCancelled"
+      op: eq
+      value: true
+    setClassification:
+      intent: FYI
+      urgency: SOMEDAY
+      risk: LOW
+      confidence: 0.99
+      rationale: ["Event was cancelled."]
+    actions:
+      - type: SKIP
+    terminal: true
+
+  - id: meeting-invite-triage
+    priority: 900
+    when:
+      field: "source"
+      op: eq
+      value: calendar
+    setClassification:
+      intent: SCHEDULING
+      urgency: THIS_WEEK
+      risk: MEDIUM
+      confidence: 0.90
+      rationale: ["Calendar event requires accept/decline decision."]
+    actions:
+      - type: TRIAGE
+        question: "Calendar event requires your response. Accept, tentatively accept, or decline?"
+    terminal: true
+
+  - id: fallback-skip
+    priority: 0
+    when:
+      field: "source"
+      op: eq
+      value: calendar
+    setClassification:
+      intent: FYI
+      urgency: SOMEDAY
+      risk: LOW
+      confidence: 0.50
+      rationale: ["Informational calendar item."]
+    actions:
+      - type: SKIP
+    terminal: true

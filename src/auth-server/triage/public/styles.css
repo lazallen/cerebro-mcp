@@ -1,0 +1,610 @@
+/* ============================================================
+   Triage Review UI — Dark Theme
+   CSS custom properties system based on GitHub dark palette.
+   ============================================================ */
+
+:root {
+  --bg-canvas:   #0d1117;
+  --bg-surface:  #161b22;
+  --bg-overlay:  #21262d;
+  --bg-selected: #1f3a5f;
+  --border:      #30363d;
+  --text-primary:#e6edf3;
+  --text-muted:  #8b949e;
+  --text-link:   #58a6ff;
+  --accent:      #58a6ff;
+  --success:     #3fb950;
+  --warning:     #d29922;
+  --danger:      #f85149;
+  --focus-ring:  rgba(88, 166, 255, 0.40);
+
+  /* Source badge colours */
+  --badge-email:          #1f6feb;
+  --badge-slack:          #9b1a4e;
+  --badge-meeting-invite: #196c2e;
+  --badge-calendar:       #7a3900;
+  --badge-journal:        #4e2d7a;
+  --badge-other:          #30363d;
+
+  --radius: 6px;
+  --list-width: 320px;
+}
+
+/* ── Reset & Base ──────────────────────────────────────────── */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Top Navigation ─────────────────────────────────────────── */
+
+#main-nav {
+  height: 48px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  flex-shrink: 0;
+  z-index: 10;
+}
+
+.nav-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+  color: var(--text-primary);
+}
+
+.nav-brand:hover { text-decoration: none; }
+
+.nav-title {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+
+.nav-links {
+  display: flex;
+  list-style: none;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.nav-link {
+  padding: 5px 12px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-decoration: none;
+  transition: background 0.15s, color 0.15s;
+}
+
+.nav-link:hover { background: var(--bg-overlay); color: var(--text-primary); text-decoration: none; }
+.nav-link.active { background: var(--bg-overlay); color: var(--text-primary); }
+
+a { color: var(--text-link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ── Layout ────────────────────────────────────────────────── */
+
+#app {
+  display: grid;
+  grid-template-columns: 1fr var(--list-width);
+  flex: 1;
+  overflow: hidden;
+}
+
+/* ── Item List Panel (right column) ───────────────────────── */
+
+#list-panel {
+  background: var(--bg-surface);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#list-header {
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+
+#list-header h1 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+#item-count {
+  font-size: 12px;
+  color: var(--text-muted);
+  background: var(--bg-overlay);
+  border-radius: 10px;
+  padding: 2px 8px;
+}
+
+#item-list {
+  list-style: none;
+  overflow-y: auto;
+  flex: 1;
+}
+
+#item-list li {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  transition: background 0.1s;
+}
+
+#item-list li:hover { background: var(--bg-overlay); }
+#item-list li.selected { background: var(--bg-selected); }
+
+.item-badge {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border-radius: 10px;
+  color: var(--text-primary);
+  margin-top: 2px;
+}
+.badge-email          { background: var(--badge-email); }
+.badge-slack          { background: var(--badge-slack); }
+.badge-meeting-invite { background: var(--badge-meeting-invite); }
+.badge-calendar       { background: var(--badge-calendar); }
+.badge-journal        { background: var(--badge-journal); }
+.badge-other          { background: var(--badge-other); }
+
+.item-meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.item-title {
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 13px;
+}
+
+.item-date {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* ── Empty State ───────────────────────────────────────────── */
+
+#empty-state {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  color: var(--text-muted);
+  text-align: center;
+  gap: 8px;
+  flex: 1;
+}
+
+#empty-state.visible { display: flex; }
+
+#empty-state .empty-icon { font-size: 32px; opacity: 0.4; }
+#empty-state p { font-size: 14px; }
+
+/* ── Detail Panel (left column) ────────────────────────────── */
+
+#detail-panel {
+  background: var(--bg-canvas);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#detail-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-muted);
+  gap: 8px;
+}
+
+#detail-empty .empty-icon { font-size: 40px; opacity: 0.3; }
+
+#detail-content {
+  display: none;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+#detail-content.visible { display: flex; }
+
+#detail-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-surface);
+  flex-shrink: 0;
+}
+
+#detail-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+
+#detail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+#detail-meta .meta-item { display: flex; align-items: center; gap: 4px; }
+
+#detail-body-row {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+#item-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text-primary);
+}
+
+/* Markdown body rendering */
+#item-body pre {
+  background: var(--bg-overlay);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  overflow-x: auto;
+  font-size: 12px;
+  margin: 8px 0;
+}
+
+#item-body table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 8px 0;
+  font-size: 13px;
+}
+
+#item-body th, #item-body td {
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  text-align: left;
+}
+
+#item-body th {
+  background: var(--bg-overlay);
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+#item-body blockquote {
+  border-left: 3px solid var(--border);
+  padding-left: 12px;
+  color: var(--text-muted);
+  margin: 8px 0;
+}
+
+#item-body h2, #item-body h3 {
+  color: var(--text-muted);
+  margin: 14px 0 6px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 700;
+}
+
+#item-body p { margin: 6px 0; }
+#item-body ul, #item-body ol { padding-left: 20px; margin: 6px 0; }
+
+/* ── Calendar day widget (vertical sidebar) ─────────────────── */
+
+.cal-widget {
+  display: none;           /* shown as 'flex' via JS */
+  flex-direction: column;
+  width: 175px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+
+.cal-widget-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 8px 10px 6px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  line-height: 1.4;
+}
+
+.cal-loading, .cal-error {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 10px;
+  display: flex;
+  align-items: flex-start;
+}
+
+.cal-error { color: var(--danger); }
+
+.cal-scroll {
+  overflow-y: auto;
+  overflow-x: hidden;
+  flex: 1;
+}
+
+/* Vertical grid: label col | slot col, 20 rows of 26px */
+.cal-grid {
+  display: grid;
+  grid-template-columns: 36px 1fr;
+  grid-template-rows: repeat(20, 26px);
+  width: 100%;
+  position: relative;
+}
+
+.cal-label {
+  grid-column: 1;
+  font-size: 9px;
+  color: var(--text-muted);
+  padding: 2px 3px 0 5px;
+  white-space: nowrap;
+  align-self: start;
+}
+
+.cal-slot-bg {
+  grid-column: 2;
+  background: var(--bg-overlay);
+  border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+}
+
+.cal-slot-bg:first-of-type { border-top: 1px solid var(--border); }
+
+/* Alternate shade per hour pair */
+.cal-slot-even { background: var(--bg-canvas); }
+
+.cal-event {
+  grid-column: 2;
+  margin: 1px 2px;
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 500;
+  overflow: hidden;
+  cursor: default;
+  z-index: 2;
+  line-height: 1.3;
+  min-height: 0;
+}
+
+.cal-event-busy     { background: #1f4070; color: var(--text-primary); }
+.cal-event-this     { background: #1a7f37; color: #fff; font-weight: 700; }
+.cal-event-tentative{ background: #7d6608; color: #fff; }
+.cal-event-oof      { background: #6e3030; color: #fff; }
+.cal-event-free     { background: transparent; border: 1px dashed var(--border); color: var(--text-muted); }
+
+/* ── Recurring conflict summary ─────────────────────────────── */
+
+.cal-recurrence {
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
+  padding: 8px 10px;
+  font-size: 10px;
+}
+
+.recurrence-summary {
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.recurrence-ok   { color: var(--success); }
+.recurrence-warn { color: var(--warning); }
+
+.recurrence-conflicts {
+  list-style: none;
+  margin-top: 5px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.recurrence-conflicts li {
+  color: var(--text-muted);
+  padding-left: 8px;
+  border-left: 2px solid var(--warning);
+  line-height: 1.4;
+}
+
+/* ── Meeting metadata footer ────────────────────────────────── */
+
+.item-meta-footer {
+  display: none;
+  flex-shrink: 0;
+  padding: 5px 20px;
+  font-size: 10px;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border);
+  background: var(--bg-surface);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.65;
+}
+
+.item-meta-footer.visible { display: block; }
+
+/* ── Resolution Controls ────────────────────────────────────── */
+
+#resolution-controls {
+  flex-shrink: 0;
+  padding: 16px 20px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-surface);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.resolution-buttons { display: flex; gap: 8px; }
+
+.btn {
+  padding: 7px 16px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.15s, background 0.15s;
+  white-space: nowrap;
+  font-family: inherit;
+}
+
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.btn-done {
+  background: var(--success);
+  color: #0d1117;
+}
+.btn-done:not(:disabled):hover { opacity: 0.85; }
+
+.btn-defer {
+  background: var(--warning);
+  color: #0d1117;
+}
+.btn-defer:not(:disabled):hover { opacity: 0.85; }
+
+.delegate-row { display: flex; gap: 8px; align-items: flex-end; }
+
+#delegate-input {
+  flex: 1;
+  min-height: 64px;
+  max-height: 120px;
+  padding: 8px 12px;
+  background: var(--bg-overlay);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+  line-height: 1.5;
+  resize: vertical;
+  transition: border-color 0.15s;
+}
+
+#delegate-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+#delegate-input::placeholder { color: var(--text-muted); }
+
+.btn-accept {
+  background: var(--accent);
+  color: #0d1117;
+  align-self: flex-end;
+  height: 36px;
+}
+.btn-accept:not(:disabled):hover { opacity: 0.85; }
+
+/* ── Calendar Response Controls ─────────────────────────────── */
+
+#calendar-controls {
+  flex-shrink: 0;
+  padding: 16px 20px;
+  border-top: 1px solid var(--border);
+}
+
+.calendar-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-cal-accept {
+  background: #1a7f37;
+  color: #fff;
+}
+.btn-cal-accept:not(:disabled):hover { background: #2da44e; }
+
+.btn-cal-tentative {
+  background: #7d6608;
+  color: #fff;
+}
+.btn-cal-tentative:not(:disabled):hover { background: #9e810a; }
+
+.btn-cal-decline {
+  background: #cf222e;
+  color: #fff;
+}
+.btn-cal-decline:not(:disabled):hover { background: #e5393e; }
+
+/* ── Error / Info Banner ────────────────────────────────────── */
+
+#error-banner {
+  display: none;
+  margin: 8px 0 0;
+  padding: 8px 12px;
+  background: rgba(248, 81, 73, 0.12);
+  border: 1px solid rgba(248, 81, 73, 0.40);
+  border-radius: var(--radius);
+  color: var(--danger);
+  font-size: 12px;
+}
+
+#error-banner.visible { display: block; }
+
+/* ── Scrollbars ─────────────────────────────────────────────── */
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }

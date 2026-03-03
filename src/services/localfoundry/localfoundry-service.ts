@@ -131,8 +131,8 @@ export class LocalFoundryService implements BaseService {
 
   /**
    * Check if service is available (no authentication needed for local endpoint)
-   * Returns true if LocalFoundry endpoint is reachable and responding.
-   * @returns true if endpoint is healthy, false otherwise
+   * LocalFoundry uses no OAuth — always returns true.
+   * Health check failures are logged but do not block service availability.
    */
   async isAuthenticated(): Promise<boolean> {
     try {
@@ -146,7 +146,6 @@ export class LocalFoundryService implements BaseService {
           'LocalFoundry health check failed - endpoint may be unreachable'
         );
       }
-      return isHealthy;
     } catch (error) {
       logger.warn(
         {
@@ -155,8 +154,8 @@ export class LocalFoundryService implements BaseService {
         },
         'LocalFoundry health check error - endpoint may be unreachable'
       );
-      return false;
     }
+    return true;
   }
 
   /**

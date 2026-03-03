@@ -2,6 +2,7 @@
  * Task registry for mapping task types to handler implementations
  */
 
+import * as path from 'path';
 import type { TaskHandler, TaskRegistry } from '../types';
 import { logger } from '../../../common/logger';
 
@@ -15,7 +16,6 @@ import { logger } from '../../../common/logger';
 export function createTaskRegistry(dependencies?: {
   graphClient?: any;
   lfClient?: any;
-  eventsDir?: string;
   microsoftService?: any;
   rootDir?: string;
   /** Resolved system directory — use this instead of path.join(rootDir, 'system') */
@@ -35,10 +35,8 @@ export function createTaskRegistry(dependencies?: {
     operation: 'task_registry_dependencies',
     hasGraphClient: !!dependencies?.graphClient,
     hasLfClient: !!dependencies?.lfClient,
-    hasEventsDir: !!dependencies?.eventsDir,
     hasMicrosoftService: !!dependencies?.microsoftService,
     hasRootDir: !!dependencies?.rootDir,
-    eventsDir: dependencies?.eventsDir,
     rootDir: dependencies?.rootDir,
     message: 'Task registry dependencies check',
   });
@@ -69,32 +67,6 @@ export function createTaskRegistry(dependencies?: {
         taskType: 'email-ingestion',
         error: (error as Error).message,
         message: 'Failed to register email-ingestion task handler',
-      });
-    }
-  }
-
-  // Register email-triage task (legacy — kept for backwards compatibility)
-  if (dependencies?.graphClient && dependencies?.lfClient && dependencies?.eventsDir) {
-    try {
-      const { EmailTriageTask } = require('./email-triage-task');
-      const emailTriageHandler = new EmailTriageTask(
-        dependencies.graphClient,
-        dependencies.lfClient,
-        dependencies.eventsDir
-      );
-      registry.set('email-triage', emailTriageHandler);
-
-      logger.debug({
-        operation: 'task_handler_registered',
-        taskType: 'email-triage',
-        message: 'Registered email-triage task handler',
-      });
-    } catch (error) {
-      logger.warn({
-        operation: 'task_handler_registration_error',
-        taskType: 'email-triage',
-        error: (error as Error).message,
-        message: 'Failed to register email-triage task handler',
       });
     }
   }
@@ -141,10 +113,9 @@ export function createTaskRegistry(dependencies?: {
     try {
       const { PolicyPipelineTask } = require('./policy-pipeline-task');
       const { LocalEnrichmentService } = require('../../enrichment/local-enrichment-service');
-      const { ClaudeEnrichmentService } = require('../../enrichment/claude-enrichment-service');
 
       const systemDir = resolvedSystemDir;
-      const policyDir = resolvedSystemDir;
+      const policyDir = path.join(resolvedSystemDir, 'policies');
 
       // Optionally wire local enrichment if lfClient is available
       let localEnrichment: InstanceType<typeof LocalEnrichmentService> | undefined;
@@ -152,26 +123,13 @@ export function createTaskRegistry(dependencies?: {
         localEnrichment = new LocalEnrichmentService(dependencies.lfClient);
       }
 
-      // Optionally wire Claude enrichment if ANTHROPIC_API_KEY is set
-      let claudeEnrichment: InstanceType<typeof ClaudeEnrichmentService> | undefined;
-      const anthropicKey = process.env['ANTHROPIC_API_KEY'];
-      if (anthropicKey) {
-        claudeEnrichment = new ClaudeEnrichmentService(anthropicKey);
-      }
-
-      const pipelineHandler = new PolicyPipelineTask(
-        systemDir,
-        policyDir,
-        localEnrichment,
-        claudeEnrichment
-      );
+      const pipelineHandler = new PolicyPipelineTask(systemDir, policyDir, localEnrichment, dependencies?.rootDir);
       registry.set('policy-pipeline', pipelineHandler);
 
       logger.debug({
         operation: 'task_handler_registered',
         taskType: 'policy-pipeline',
         hasLocalEnrichment: !!localEnrichment,
-        hasClaudeEnrichment: !!claudeEnrichment,
         message: 'Registered policy-pipeline task handler',
       });
     } catch (error) {
@@ -189,22 +147,15 @@ export function createTaskRegistry(dependencies?: {
     try {
       const { ExecutorTask } = require('./executor-task');
 
-      // Optionally wire Atlassian client if credentials are configured
-      let atlassianClient: unknown = undefined;
-      const atlassianBaseUrl = process.env['ATLASSIAN_BASE_URL'];
-      const atlassianEmail = process.env['ATLASSIAN_EMAIL'];
-      const atlassianApiToken = process.env['ATLASSIAN_API_TOKEN'];
-      if (atlassianBaseUrl && atlassianEmail && atlassianApiToken) {
-        const { AtlassianClient } = require('../../../lib/atlassian');
-        atlassianClient = new AtlassianClient(atlassianBaseUrl, atlassianEmail, atlassianApiToken);
-        logger.info({
-          operation: 'atlassian_client_init',
-          baseUrl: atlassianBaseUrl,
-          message: 'Atlassian client initialised for Confluence enrichment',
-        });
+      // Wire up Claude executor if ANTHROPIC_API_KEY is set
+      let claudeExecutor: InstanceType<typeof import('../../enrichment/claude-executor-service').ClaudeExecutorService> | undefined;
+      const anthropicKey = process.env['ANTHROPIC_API_KEY'];
+      if (anthropicKey) {
+        const { ClaudeExecutorService } = require('../../enrichment/claude-executor-service');
+        claudeExecutor = new ClaudeExecutorService(anthropicKey);
       }
 
-      registry.set('executor', new ExecutorTask(dependencies.microsoftService, resolvedSystemDir, atlassianClient));
+      registry.set('executor', new ExecutorTask(dependencies.microsoftService, resolvedSystemDir, dependencies.rootDir ?? './context', claudeExecutor));
       logger.debug({
         operation: 'task_handler_registered',
         taskType: 'executor',

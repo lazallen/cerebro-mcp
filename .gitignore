@@ -68,3 +68,6 @@ context
 
 # System Directories
 system
+
+# Symlink to cerebro productivity project (local navigation only)
+cerebro-project

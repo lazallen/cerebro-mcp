@@ -1,22 +1,20 @@
 /**
  * Calendar Ingestion Task
- * Fetches upcoming calendar events and writes TriageEvent artifacts to system/triage/.
+ * Fetches upcoming calendar events and writes EventItem artifacts to system/events/.
  *
- * Ingestion ONLY: no journal writes, no OneNote. Policy engine handles all actions.
+ * Ingestion ONLY: no journal writes, no OneNote. Policy pipeline handles all actions.
  * Journal writing remains the responsibility of the journal-triage task.
  */
 
 import * as path from 'path';
 import type { TaskConfig } from '../../../types/heartbeat';
 import type { TaskHandler } from '../types';
-import { saveEvent } from '../../../lib/triage/triage-event-store';
-import type { TriageEvent } from '../../../lib/policy/types';
+import { saveItem, getItem } from '../../../lib/item/item-store';
+import type { EventItem } from '../../../lib/item/types';
 import { logger } from '../../../common/logger';
 
 interface CalendarIngestionConfig {
-  /** Number of days ahead to fetch events (default: 7) */
   lookaheadDays?: number;
-  /** Maximum events to fetch (default: 100) */
   maxEvents?: number;
 }
 
@@ -49,14 +47,14 @@ export class CalendarIngestionTask implements TaskHandler {
     const endDate = new Date(startDate);
     endDate.setDate(endDate.getDate() + lookaheadDays);
 
-    let events: any[] = [];
+    let calendarEvents: any[] = [];
     try {
       const response = await this.microsoftService.listEvents({
         startDate: startDate.toISOString(),
         endDate: endDate.toISOString(),
         count: maxEvents,
       });
-      events = response.events ?? [];
+      calendarEvents = response.events ?? [];
     } catch (err) {
       logger.error({
         operation: 'calendar_ingestion_fetch_error',
@@ -68,22 +66,34 @@ export class CalendarIngestionTask implements TaskHandler {
 
     logger.info({
       operation: 'calendar_ingestion_fetched',
-      count: events.length,
-      message: `Fetched ${events.length} calendar events`,
+      count: calendarEvents.length,
+      message: `Fetched ${calendarEvents.length} calendar events`,
     });
 
     let written = 0;
-    for (const event of events) {
+    for (const calEvent of calendarEvents) {
       try {
-        const triageEvent = this.buildTriageEvent(event);
-        await saveEvent(this.absoluteSystemDir, triageEvent);
+        // Use the graph event ID for deduplication
+        const id = String(calEvent.id ?? '');
+        const existing = await getItem(this.absoluteSystemDir, id);
+        if (existing) {
+          logger.debug({
+            operation: 'calendar_ingestion_skip_existing',
+            itemId: id,
+            message: `Skipping already-ingested calendar event: ${id}`,
+          });
+          continue;
+        }
+
+        const item = this.buildEventItem(calEvent);
+        await saveItem(this.absoluteSystemDir, item);
         written++;
       } catch (err) {
         logger.warn({
           operation: 'calendar_ingestion_event_error',
-          eventId: event.id,
+          eventId: calEvent.id,
           error: (err as Error).message,
-          message: `Failed to write triage event for calendar event ${event.id}`,
+          message: `Failed to write item for calendar event ${calEvent.id}`,
         });
       }
     }
@@ -91,25 +101,33 @@ export class CalendarIngestionTask implements TaskHandler {
     logger.info({
       operation: 'calendar_ingestion_complete',
       written,
-      total: events.length,
-      message: `Calendar ingestion complete: ${written}/${events.length} events written`,
+      total: calendarEvents.length,
+      message: `Calendar ingestion complete: ${written}/${calendarEvents.length} items written`,
     });
   }
 
-  private buildTriageEvent(event: any): TriageEvent {
-    const startDate = (event.start?.dateTime ?? new Date().toISOString()).slice(0, 10).replace(/-/g, '');
-    const eventId = `${startDate}-calendar-${String(event.id ?? '').slice(-8)}`;
+  private buildEventItem(calEvent: any): EventItem {
+    const attendees: string[] =
+      (calEvent.attendees ?? []).map(
+        (a: any) => a.emailAddress?.address ?? a.emailAddress?.name ?? ''
+      );
 
     return {
-      eventId,
+      type: 'EVENT',
       source: 'calendar',
-      status: 'pending',
-      title: event.subject ?? 'Untitled Meeting',
-      author: 'calendar@system',
-      receivedAt: event.start?.dateTime ?? new Date().toISOString(),
-      snippet: event.location?.displayName
-        ? `Meeting at ${event.location.displayName}: ${event.subject}`
-        : `Meeting: ${event.subject}`,
+      id: String(calEvent.id ?? ''),
+      status: 'inbox',
+      createdAt: calEvent.start?.dateTime ?? new Date().toISOString(),
+      title: calEvent.subject ?? 'Untitled Meeting',
+      start: calEvent.start?.dateTime ?? new Date().toISOString(),
+      end: calEvent.end?.dateTime ?? new Date().toISOString(),
+      description: calEvent.bodyPreview ?? calEvent.body?.content ?? '',
+      organizer: calEvent.organizer?.emailAddress?.address,
+      attendees,
+      location: calEvent.location?.displayName,
+      isCancelled: calEvent.isCancelled ?? false,
+      isOnlineMeeting: calEvent.isOnlineMeeting ?? false,
+      calendarEventId: String(calEvent.id ?? ''),
       signals: {
         isAutomated: false,
         isBulk: false,
@@ -117,20 +135,16 @@ export class CalendarIngestionTask implements TaskHandler {
         hasAttachments: false,
         mentionsMoney: false,
         mentionsMeeting: true,
-        asksForAction: false,
-        prioritySender: false,
+        isActionRequest: false,
+        isPrioritySender: false,
       },
-      extracted: {},
-      passCount: 0,
-      passes: [],
-      sourceData: {
-        calendarEventId: event.id,
-        start: event.start?.dateTime,
-        end: event.end?.dateTime,
-        attendees: event.attendees,
-        isCancelled: event.isCancelled ?? false,
-        isAllDay: event.isAllDay ?? false,
-      },
+      actions: [
+        {
+          type: 'INGEST',
+          at: new Date().toISOString(),
+          status: 'done',
+        },
+      ],
     };
   }
 }

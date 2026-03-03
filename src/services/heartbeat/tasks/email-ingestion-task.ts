@@ -1,18 +1,17 @@
 /**
- * Email Ingestion Task (Feature 019)
- * Fetches unread emails, computes deterministic heuristic signals,
- * and writes TriageEvent artifacts to system/triage/.
+ * Email Ingestion Task
+ * Fetches unread emails, computes heuristic signals, and writes MessageItem
+ * artifacts to system/messages/.
  *
- * This replaces the email-triage-task's combined fetch+LLM+move approach.
- * Ingestion ONLY: no LLM, no email moves. Policy engine + executor handle all actions.
+ * Ingestion ONLY: no LLM, no email moves. Policy pipeline + executor handle actions.
  */
 
 import * as path from 'path';
 import TurndownService from 'turndown';
 import type { TaskConfig } from '../../../types/heartbeat';
 import type { TaskHandler } from '../types';
-import { saveEvent } from '../../../lib/triage/triage-event-store';
-import type { TriageEvent, EventSignals } from '../../../lib/policy/types';
+import { saveItem, getItem } from '../../../lib/item/item-store';
+import type { Item, MessageItem, EventItem, Signals } from '../../../lib/item/types';
 import { logger } from '../../../common/logger';
 
 interface EmailIngestionConfig {
@@ -34,6 +33,24 @@ interface GraphMessage {
   bodyPreview?: string;
   hasAttachments?: boolean;
   flag?: { flagStatus?: string };
+  meetingMessageType?:
+    | 'meetingRequest'
+    | 'meetingCancelled'
+    | 'meetingAccepted'
+    | 'meetingDeclined'
+    | 'meetingTentativelyAccepted'
+    | 'meetingUpdated';
+  event?: {
+    id?: string;
+    type?: 'singleInstance' | 'occurrence' | 'exception' | 'seriesMaster';
+    start?: { dateTime?: string; timeZone?: string };
+    end?: { dateTime?: string; timeZone?: string };
+    attendees?: Array<{
+      emailAddress: { name?: string; address: string };
+      type?: 'required' | 'optional' | 'resource';
+    }>;
+    location?: { displayName?: string };
+  };
 }
 
 export class EmailIngestionTask implements TaskHandler {
@@ -47,7 +64,7 @@ export class EmailIngestionTask implements TaskHandler {
     this.absoluteSystemDir = path.isAbsolute(systemDir)
       ? systemDir
       : path.resolve(process.cwd(), systemDir);
-    this.turndown = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' });
+    this.turndown = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced', linkStyle: 'referenced' });
     this.turndown.remove(['style', 'script', 'noscript', 'iframe', 'object', 'embed']);
   }
 
@@ -64,13 +81,9 @@ export class EmailIngestionTask implements TaskHandler {
       message: `Starting email ingestion: ${maxEmails} emails from ${folder}`,
     });
 
-    // Fetch emails via the public ingestion method (includes all required fields)
     let messages: GraphMessage[] = [];
     try {
-      messages = await this.graphClient.getEmailsForIngestion({
-        count: maxEmails,
-        folder,
-      });
+      messages = await this.graphClient.getEmailsForIngestion({ count: maxEmails, folder });
     } catch (err) {
       logger.error({
         operation: 'email_ingestion_fetch_error',
@@ -91,18 +104,31 @@ export class EmailIngestionTask implements TaskHandler {
 
     for (const msg of messages) {
       try {
-        const event = this.buildTriageEvent(msg, priorityList);
-        await saveEvent(this.absoluteSystemDir, event);
+        // Skip re-ingest if item is already in the pipeline
+        const existing = await getItem(this.absoluteSystemDir, msg.id);
+        if (existing) {
+          logger.debug({
+            operation: 'email_ingestion_skip_existing',
+            itemId: msg.id,
+            status: existing.status,
+            message: `Skipping already-ingested email: ${msg.id}`,
+          });
+          continue;
+        }
+
+        const item = this.buildItem(msg, priorityList);
+        await saveItem(this.absoluteSystemDir, item);
         written++;
+
         if (markAsRead) {
           await this.graphClient.markEmailRead(msg.id);
         }
       } catch (err) {
         logger.warn({
-          operation: 'email_ingestion_event_error',
+          operation: 'email_ingestion_item_error',
           messageId: msg.id,
           error: (err as Error).message,
-          message: `Failed to write triage event for message ${msg.id}`,
+          message: `Failed to write item for message ${msg.id}`,
         });
       }
     }
@@ -111,73 +137,80 @@ export class EmailIngestionTask implements TaskHandler {
       operation: 'email_ingestion_complete',
       written,
       total: messages.length,
-      message: `Email ingestion complete: ${written}/${messages.length} events written`,
+      message: `Email ingestion complete: ${written}/${messages.length} items written`,
     });
   }
 
-  private buildTriageEvent(msg: GraphMessage, priorityList: string[]): TriageEvent {
+  buildItem(msg: GraphMessage, priorityList: string[]): Item {
     const senderEmail = msg.from.emailAddress.address.toLowerCase();
-    const date = msg.receivedDateTime.slice(0, 10).replace(/-/g, '');
-    const eventId = `${date}-email-${msg.id.slice(-8)}`;
+    const isMeetingRequest = msg.meetingMessageType === 'meetingRequest';
 
-    // Convert HTML body to plain text for snippet
-    const bodyText = msg.body.contentType === 'html'
-      ? this.turndown.turndown(msg.body.content)
-      : msg.body.content;
+    // Convert HTML body to markdown; always store full content
+    // Decode Microsoft Safe Links before converting so references show real URLs
+    const body =
+      msg.body.contentType === 'html'
+        ? this.turndown.turndown(this.decodeSafeLinks(msg.body.content))
+        : msg.body.content;
 
-    const snippet = this.normalizeSnippet(msg.bodyPreview ?? bodyText.slice(0, 500));
-
-    const signals: EventSignals = {
+    const signals: Signals = {
       isAutomated: this.detectAutomated(msg),
       isBulk: this.detectBulk(msg),
-      hasUnsubscribe: this.detectUnsubscribe(bodyText, msg.bodyPreview ?? ''),
+      hasUnsubscribe: this.detectUnsubscribe(body, msg.bodyPreview ?? ''),
       hasAttachments: msg.hasAttachments ?? false,
-      mentionsMoney: this.detectMoney(msg.subject, snippet),
-      mentionsMeeting: this.detectMeeting(msg.subject, snippet),
-      asksForAction: this.detectActionRequest(msg.subject, snippet),
-      prioritySender: priorityList.some(
-        (p) => p.toLowerCase() === senderEmail
-      ),
-      // Outlook/Exchange injects this banner for senders outside your contact list
-      outlookFirstSender: /you don'?t often get email from/i.test(msg.bodyPreview ?? ''),
+      mentionsMoney: this.detectMoney(msg.subject, body),
+      mentionsMeeting: this.detectMeeting(msg.subject, body) || isMeetingRequest,
+      isActionRequest: this.detectActionRequest(msg.subject, body),
+      isPrioritySender: priorityList.some((p) => p.toLowerCase() === senderEmail),
     };
 
-    return {
-      eventId,
+    const ingestAction = { type: 'INGEST' as const, at: new Date().toISOString(), status: 'done' as const };
+
+    if (isMeetingRequest) {
+      const ev = msg.event;
+      const attendees = (ev?.attendees ?? []).map((a) => a.emailAddress.address);
+      const eventItem: EventItem = {
+        type: 'EVENT',
+        source: 'meeting-invite',
+        id: msg.id,
+        status: 'inbox',
+        createdAt: msg.receivedDateTime,
+        title: msg.subject,
+        start: ev?.start?.dateTime ?? msg.receivedDateTime,
+        end: ev?.end?.dateTime ?? msg.receivedDateTime,
+        description: body,
+        organizer: senderEmail,
+        attendees,
+        location: ev?.location?.displayName,
+        messageId: msg.id,   // needed for RESPOND_CALENDAR via /me/messages/{id}/accept
+        calendarEventId: ev?.id,
+        isOnlineMeeting: false,
+        signals,
+        actions: [ingestAction],
+      };
+      return eventItem;
+    }
+
+    const messageItem: MessageItem = {
+      type: 'MESSAGE',
       source: 'email',
-      status: 'pending',
-      title: msg.subject,
-      author: senderEmail,
-      receivedAt: msg.receivedDateTime,
-      snippet,
+      id: msg.id,
+      status: 'inbox',
+      createdAt: msg.receivedDateTime,
+      subject: msg.subject,
+      from: senderEmail,
+      to: msg.toRecipients?.map((r) => r.emailAddress.address) ?? [],
+      date: msg.receivedDateTime,
+      messageId: msg.id,
+      body,
       signals,
-      extracted: {},
-      passCount: 0,
-      passes: [],
-      sourceData: {
-        messageId: msg.id,
-        internetMessageId: msg.internetMessageId,
-        conversationId: msg.conversationId,
-        from: msg.from.emailAddress,
-        bodyPreview: msg.bodyPreview,
-      },
+      actions: [ingestAction],
     };
-  }
-
-  private normalizeSnippet(raw: string): string {
-    return raw
-      .replace(/\r\n/g, '\n')           // CRLF → LF
-      .split('\n')
-      .map((line) => line.replace(/\s+/g, ' ').trim())  // collapse intra-line whitespace
-      .join('\n')
-      .replace(/\n{3,}/g, '\n\n')       // collapse 3+ blank lines to one
-      .trim()
-      .slice(0, 500);
+    return messageItem;
   }
 
   private detectAutomated(msg: GraphMessage): boolean {
-    const subject = msg.subject.toLowerCase();
     const from = msg.from.emailAddress.address.toLowerCase();
+    const subject = msg.subject.toLowerCase();
     return (
       from.includes('noreply') ||
       from.includes('no-reply') ||
@@ -199,23 +232,36 @@ export class EmailIngestionTask implements TaskHandler {
     );
   }
 
-  private detectUnsubscribe(bodyText: string, bodyPreview: string): boolean {
-    const lower = (bodyText + ' ' + bodyPreview).toLowerCase();
+  private detectUnsubscribe(body: string, preview: string): boolean {
+    const lower = (body + ' ' + preview).toLowerCase();
     return lower.includes('unsubscribe') || lower.includes('opt out') || lower.includes('opt-out');
   }
 
-  private detectMoney(subject: string, snippet: string): boolean {
-    const text = (subject + ' ' + snippet).toLowerCase();
+  private detectMoney(subject: string, body: string): boolean {
+    const text = (subject + ' ' + body.slice(0, 500)).toLowerCase();
     return /£|\$|€|\d+\.\d{2}|invoice|receipt|payment|billing|total|amount/.test(text);
   }
 
-  private detectMeeting(subject: string, snippet: string): boolean {
-    const text = (subject + ' ' + snippet).toLowerCase();
+  private detectMeeting(subject: string, body: string): boolean {
+    const text = (subject + ' ' + body.slice(0, 500)).toLowerCase();
     return /meeting|calendar|invite|schedule|call|zoom|teams|standup|stand-up/.test(text);
   }
 
-  private detectActionRequest(subject: string, snippet: string): boolean {
-    const text = (subject + ' ' + snippet).toLowerCase();
+  private decodeSafeLinks(html: string): string {
+    // Match the entire safelinks URL (including all trailing &data=...&reserved=0 params)
+    // then extract and decode just the url= parameter
+    return html.replace(
+      /https?:\/\/[a-z0-9]+\.safelinks\.protection\.outlook\.com\/[^\s"'>]*/gi,
+      (match) => {
+        const urlParam = match.match(/[?&]url=([^&]+)/);
+        if (!urlParam) return match;
+        try { return decodeURIComponent(urlParam[1]); } catch { return match; }
+      }
+    );
+  }
+
+  private detectActionRequest(subject: string, body: string): boolean {
+    const text = (subject + ' ' + body.slice(0, 500)).toLowerCase();
     return /please|action required|follow.?up|can you|could you|request|deadline|urgent/.test(text);
   }
 }
