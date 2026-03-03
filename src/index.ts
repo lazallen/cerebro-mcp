@@ -53,6 +53,14 @@ async function main(): Promise<void> {
     // Register MCP server with OAuth server for unified routing
     oauthServer.registerMCPServer(mcpServer);
 
+    // Register Triage Review UI at /triage (pass MS service for meeting-invite calendar responses)
+    // Cast is safe: MicrosoftService implements CalendarResponder (has respondToMeetingInviteEmail)
+    oauthServer.registerTriageRouter(
+      process.env['SYSTEM_DIR'] ?? './system',
+      process.env['ROOT_DIR'] ?? './context',
+      serviceRegistry.get('microsoft') as unknown as import('./auth-server/triage-router').CalendarResponder | undefined
+    );
+
     // Register services with OAuth server for authentication
     for (const [serviceName, service] of serviceRegistry.services.entries()) {
       // Get token storage - we need to cast to access it

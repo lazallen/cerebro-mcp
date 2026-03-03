@@ -128,7 +128,7 @@ async function waitForServer(port: number, maxAttempts: number = 10): Promise<vo
 
 describe('OAuthServer', () => {
   let server: OAuthServer;
-  const testPort = 3334; // Use different port to avoid conflicts
+  const testPort = 39334; // High port to avoid conflicts with running services
 
   beforeEach(() => {
     server = new OAuthServer(testPort);

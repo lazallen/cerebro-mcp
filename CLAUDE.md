@@ -1,50 +1,66 @@
-# cerebro-mcp Development Guidelines
+# cerebro-mcp
 
-Auto-generated from all feature plans. Last updated: 2026-01-22
+The MCP server that powers Stuart Davidson's Cerebro productivity system. It exposes Microsoft Graph, Slack, and local processing tools to Claude Code via the MCP protocol, and runs an autonomous heartbeat process that keeps the Obsidian vault in sync.
 
-## Active Technologies
-- TypeScript 5.3.3 with Node.js 18+ + @modelcontextprotocol/sdk ^1.0.0, dotenv ^16.4.1, pino ^8.19.0 (logging), ws ^8.19.0 (011-localfoundry-integration)
-- File-based token storage (not required for LocalFoundry - no OAuth) (011-localfoundry-integration)
-- TypeScript 5.3.3 with Node.js 18+ + @modelcontextprotocol/sdk ^1.25.3, Microsoft Graph API v1.0 (012-email-folder-filter)
-- File-based OAuth token storage (existing: .tokens/ directory) (012-email-folder-filter)
-- TypeScript 5.3.3 with Node.js 18+ + @modelcontextprotocol/sdk ^1.25.3, Microsoft Graph API v1.0, Tesseract.js ^5.0.0 (OCR), node-canvas ^2.11.2 (ink rendering), fast-xml-parser ^4.3.2, marked ^12.0.0 (013-onenote-meeting-notes)
-- Microsoft OneNote via Graph API v1.0 + InkML parsing + Local OCR (Tesseract.js primary, LocalFoundry fallback) (013-onenote-meeting-notes)
-- Cloud storage only, no local DB (013-onenote-meeting-notes)
-- TypeScript 5.3.3 with Node.js 18+ + @modelcontextprotocol/sdk ^1.25.3, Microsoft Graph API v1.0 (existing) (014-move-email-folder)
-- File-based OAuth token storage (existing .tokens/ directory) (014-move-email-folder)
-- TypeScript 5.3.3 with Node.js 18+ + `@modelcontextprotocol/sdk ^1.25.3`, Microsoft Graph API v1.0 (015-meeting-response)
-- File-based OAuth token storage (existing `.tokens/` directory) (015-meeting-response)
-- File-based OAuth token storage (existing: `.tokens/` directory) (016-meeting-room-booking)
-- TypeScript 5.3.3 with Node.js 18+ + node-cron ^3.0.3, chokidar ^4.0.3, proper-lockfile ^4.1.2, @modelcontextprotocol/sdk ^1.25.3 (017-task-heartbeat)
-- File-based (event files in markdown, execution logs, counter persistence) (017-task-heartbeat)
-- File-based markdown journal entries in `{rootDir}/areas/journal.YYYY-MM/YYYY-MM-DD.md` (018-journal-triage)
-- TypeScript 5.3.3, Node.js ≥18 + gray-matter ^4.0.3, chokidar ^4.0.3, proper-lockfile ^4.1.2, @anthropic-ai/sdk (to add), js-yaml (bundled with gray-matter), zod (validate policy at load) (019-policy-engine)
-- Frontmatter-enriched markdown files under `{rootDir}/system/`; no database (019-policy-engine)
-- TypeScript 5.3.3 / Node.js 18+ + `@modelcontextprotocol/sdk ^1.25.3`, `pino ^8.19.0` (existing); no new runtime dependencies required (Node 18+ `fetch` built-in) (020-slack-saved-items)
-- File-based JSON at `.tokens/slack-session-credentials.json` (0o600 permissions, consistent with `.tokens/` pattern) (020-slack-saved-items)
+## Relationship to the Cerebro Project
 
-- TypeScript 5.x with Node.js 18+ + @modelcontextprotocol/sdk, Node.js crypto (HMAC-SHA256), uuid (010-slack-message-actions)
+- **Cerebro project** (commands, skills, CLAUDE.md): `/home/stuartdavidson/cerebro` — also accessible as `./cerebro-project/`
+- **Obsidian vault** (tasks, journal, people, projects): `/home/stuartdavidson/cerebro/context` — also accessible as `./context/`
+- **Obsidian plugin**: `/home/stuartdavidson/code/obsidian-cerebro`
 
-## Project Structure
+When investigating how a tool is called or why something behaves a certain way, check the commands and skills in `./cerebro-project/.claude/` — that's where the business logic lives that drives how Claude Code invokes these MCP tools.
 
-```text
-src/
-tests/
+## Architecture
+
 ```
+src/
+├── tools/          # MCP tool implementations (microsoft, slack, local, triage)
+├── heartbeat/      # Autonomous background process (journal-triage, task sync)
+├── policy/         # Policy engine for triage decisions
+└── server.ts       # MCP server entry point
+
+specs/              # Feature specs (numbered, e.g. 017-task-heartbeat.md)
+```
+
+## Key Subsystems
+
+### Heartbeat (`src/heartbeat/`)
+Runs on a cron schedule. Key tasks:
+- **journal-triage**: Syncs Outlook calendar events into daily journal markdown files, creates missing journal entries. Runs every 15 minutes.
+- Reads/writes directly to the Obsidian vault via the `context` symlink.
+
+**Known issue (2026-03-02):** The journal-triage process is pre-populating the Morning Check-In energy level field with a default value ("7/10 - Ready to start the day") before the boot sequence runs. This is incorrect — energy level should only be written by the user via boot sequence.
+
+### Policy Engine (`src/policy/`)
+Evaluates triage items against rules defined in `system/` directory. Drives the `triage_*` MCP tools.
+
+### Microsoft Tools (`src/tools/microsoft/`)
+Wraps Microsoft Graph API v1.0. Covers: calendar events, email, OneNote, meeting rooms, meeting responses.
+
+### Slack Tools (`src/tools/slack/`)
+Covers: channels, groups, canvases, reminders, saved items, message actions.
 
 ## Commands
 
-npm test && npm run lint
+```bash
+npm test          # Run tests
+npm run lint      # Lint
+npm run build     # Production build to dist/
+npm run dev       # Watch mode
+```
 
-## Code Style
+## Configuration
 
-TypeScript 5.x with Node.js 18+: Follow standard conventions
+- `heartbeat-config.json` — runtime config (gitignored). See `heartbeat-config.example.json`.
+- `.tokens/` — OAuth token storage (gitignored)
+- `system/` — Policy rules and system config (gitignored from repo, lives in vault)
 
-## Recent Changes
-- 020-slack-saved-items: Added TypeScript 5.3.3 / Node.js 18+ + `@modelcontextprotocol/sdk ^1.25.3`, `pino ^8.19.0` (existing); no new runtime dependencies required (Node 18+ `fetch` built-in)
-- 019-policy-engine: Added TypeScript 5.3.3, Node.js ≥18 + gray-matter ^4.0.3, chokidar ^4.0.3, proper-lockfile ^4.1.2, @anthropic-ai/sdk (to add), js-yaml (bundled with gray-matter), zod (validate policy at load)
-- 018-journal-triage: Added TypeScript 5.3.3 with Node.js 18+
+## Active Technologies
 
-
-<!-- MANUAL ADDITIONS START -->
-<!-- MANUAL ADDITIONS END -->
+- TypeScript 5.3.3 / Node.js 18+
+- `@modelcontextprotocol/sdk ^1.25.3`
+- Microsoft Graph API v1.0
+- `gray-matter` (frontmatter parsing)
+- `pino` (logging)
+- `node-cron` + `chokidar` + `proper-lockfile` (heartbeat)
+- `@anthropic-ai/sdk` (policy engine enrichment)

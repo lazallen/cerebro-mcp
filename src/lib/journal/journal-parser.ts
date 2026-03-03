@@ -26,13 +26,6 @@ export function parseJournalFile(content: string): JournalParseResult {
       };
     }
 
-    if (typeof frontmatter['energy-level'] === 'undefined' || !frontmatter['energy-description']) {
-      return {
-        success: false,
-        error: 'Missing required frontmatter fields: energy-level or energy-description',
-      };
-    }
-
     // Extract meetings from journal body
     const meetings = extractMeetings(parsed.content);
 

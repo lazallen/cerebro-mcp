@@ -1,21 +1,11 @@
 /**
- * Policy Engine — Type Contracts (Feature 019)
+ * Policy Engine — Type Contracts
  *
- * These are the authoritative TypeScript interfaces for all policy engine
- * components. Implementation files import from here; do not redefine these
- * types inline.
+ * Defines the YAML-driven policy configuration DSL (Policy, PolicyRule,
+ * Predicate, Classification) and the evaluator's output type (EvalResult).
  *
- * All types exported from this file are stable API contracts.
- * Breaking changes require a policy version bump.
+ * Item types (MessageItem, EventItem, etc.) live in src/lib/item/types.ts.
  */
-
-// ---------------------------------------------------------------------------
-// Taxonomy
-// ---------------------------------------------------------------------------
-
-export type EventSource = 'email' | 'calendar' | 'slack' | 'slack-saved' | 'journal' | 'other';
-
-export type TriageEventStatus = 'pending' | 'enriched' | 'evaluated' | 'actioned';
 
 export type IntentType =
   | 'ACTION_REQUIRED'
@@ -32,73 +22,16 @@ export type UrgencyLevel = 'NOW' | 'THIS_WEEK' | 'SOMEDAY';
 
 export type RiskLevel = 'LOW' | 'MEDIUM' | 'HIGH';
 
-export type ActionType =
-  | 'LABEL'
+/** Action types that can appear in policy YAML rules. */
+export type PolicyActionType =
+  | 'TRIAGE'
   | 'MOVE'
   | 'FLAG'
+  | 'LABEL'
   | 'CREATE_TASK'
-  | 'CREATE_READING_PACK'
-  | 'DRAFT_REPLY'
-  | 'ASK_HUMAN'
-  | 'CATEGORY'
-  | 'ENRICH_CONFLUENCE';
-
-export type HumanQueueItemType = 'ask_human' | 'claude_approval';
-
-export type HumanQueueItemStatus = 'pending' | 'resolved' | 'approved' | 'declined' | 'complete';
-
-export type LlmTier = 'local' | 'claude' | 'none';
-
-export type RunStage = 'ingestion' | 'enrichment' | 'evaluation' | 'execution' | 'human-queue';
-
-// ---------------------------------------------------------------------------
-// Event Signals & Extraction
-// ---------------------------------------------------------------------------
-
-export interface EventSignals {
-  isAutomated: boolean;
-  isBulk: boolean;
-  hasUnsubscribe: boolean;
-  hasAttachments: boolean;
-  mentionsMoney: boolean;
-  mentionsMeeting: boolean;
-  asksForAction: boolean;
-  prioritySender: boolean;
-  /** Source-specific extensions (e.g., calendar.isOrganiser, slack.isDirectMessage) */
-  [key: string]: boolean | string | number;
-}
-
-export interface ExtractedFields {
-  intent?: IntentType;
-  urgency?: UrgencyLevel;
-  confidence?: number;
-  summary?: string;
-  entities?: string[];
-  claudeEnriched?: boolean;
-  claudeApprovalRef?: string;
-  truncated?: boolean;
-  llmTier?: LlmTier;
-}
-
-// ---------------------------------------------------------------------------
-// TriageEvent
-// ---------------------------------------------------------------------------
-
-export interface TriageEvent {
-  eventId: string;
-  source: EventSource;
-  status: TriageEventStatus;
-  title: string;
-  author: string;
-  receivedAt: string;
-  snippet: string;
-  signals: EventSignals;
-  extracted: ExtractedFields;
-  passCount: number;
-  latestPassTimestamp?: string;
-  passes: EvaluationPass[];
-  sourceData?: Record<string, unknown>;
-}
+  | 'JOURNAL_NOTE'
+  | 'RESPOND_CALENDAR'
+  | 'ARCHIVE';
 
 // ---------------------------------------------------------------------------
 // Predicate DSL
@@ -140,20 +73,18 @@ export interface PolicyDefaults {
   senderAllowlist?: string[];
   senderBlocklistDomains?: string[];
   conflictResolution?: {
-    askHumanBlocksMoveToArchive: boolean;
+    triageBlocksMove: boolean;
   };
 }
 
 export interface RuleAction {
-  type: ActionType;
+  type: PolicyActionType;
   name?: string;
   folder?: string;
   folderId?: string;
-  template?: string;
-  notePath?: string;
   question?: string;
   flagStatus?: string;
-  requiresApproval?: boolean;
+  calendarResponse?: 'accepted' | 'declined' | 'tentativelyAccepted';
 }
 
 export interface Classification {
@@ -181,146 +112,39 @@ export interface Policy {
 }
 
 // ---------------------------------------------------------------------------
-// PolicyDecision & Trace
+// Evaluator output
 // ---------------------------------------------------------------------------
 
-export interface ResolvedAction extends RuleAction {
-  idempotencyKey: string;
-  requiresApproval: boolean;
-  applied?: boolean;
-  appliedAt?: string;
-}
-
-export interface GateOutcome {
-  gate: 'low_confidence' | 'high_risk' | 'draft_reply_approval' | 'ask_human_blocks_move';
-  applied: boolean;
-  reason: string;
-  actionSuppressed?: ActionType;
-}
-
+/** One rule's contribution to the trace (kept internal for logging). */
 export interface RuleTraceEntry {
   ruleId: string;
   priority: number;
   matched: boolean;
   predicateResult: PredicateResult;
   terminal: boolean;
-  gateOutcomes?: GateOutcome[];
+  suppressedActions?: PolicyActionType[];
 }
 
-export interface PolicyDecision {
-  eventId: string;
-  policyId: string;
-  policyVersion: string;
-  timestamp: string;
+/** Result of evaluating one item against a policy. */
+export interface EvalResult {
+  itemId: string;
   classification: Classification;
-  actions: ResolvedAction[];
+  /** Actions to append to the item (status will be set by the pipeline task). */
+  nextActions: RuleAction[];
   trace: RuleTraceEntry[];
-  terminal: boolean;
 }
 
 // ---------------------------------------------------------------------------
-// EvaluationPass
+// Pipeline task config (heartbeat-config.json)
 // ---------------------------------------------------------------------------
 
-export interface EvaluationPass {
-  passNumber: number;
-  timestamp: string;
-  policyId: string;
-  policyVersion: string;
-  llmTier?: LlmTier;
-  llmConfidence?: number;
-  decision: PolicyDecision;
-}
-
-// ---------------------------------------------------------------------------
-// HumanQueueItem
-// ---------------------------------------------------------------------------
-
-export interface HumanQueueItem {
-  id: string;
-  itemType: HumanQueueItemType;
-  eventRef: string;
-  status: HumanQueueItemStatus;
-  createdAt: string;
-  resolvedAt?: string;
-  question?: string;
-  reason?: string;
-  localConfidence?: number;
-  answer?: string;
-  approvalRef?: string;
-}
-
-// ---------------------------------------------------------------------------
-// EnrichmentResult
-// ---------------------------------------------------------------------------
-
-export interface EnrichmentResult {
-  eventId: string;
-  tier: LlmTier;
-  confidence: number;
-  extracted: ExtractedFields;
-  truncated: boolean;
-  claudeApprovalRef?: string;
-  durationMs: number;
-  timestamp: string;
-}
-
-// ---------------------------------------------------------------------------
-// RunLog
-// ---------------------------------------------------------------------------
-
-export interface RunLogDecisionSummary {
-  eventId: string;
-  intent: IntentType;
-  terminal: boolean;
-  actionTypes: ActionType[];
-  hasHumanItem: boolean;
-}
-
-export interface RunLogError {
-  stage: RunStage;
-  eventId?: string;
-  message: string;
-}
-
-export interface RunLogEntry {
-  runId: string;
-  policyId: string;
-  policyVersion: string;
-  startedAt: string;
-  completedAt?: string;
-  stages: RunStage[];
-  eventsProcessed: number;
-  eventsActioned: number;
-  humanItemsCreated: number;
-  humanItemsResolved: number;
-  claudeApprovalsRequested: number;
-  claudeApprovalsGranted: number;
-  errors: RunLogError[];
-  decisions: RunLogDecisionSummary[];
-}
-
-// ---------------------------------------------------------------------------
-// Pipeline Task Config
-// ---------------------------------------------------------------------------
-
-/**
- * Heartbeat task config for the policy-pipeline task type.
- * Used in heartbeat-config.json under tasks[].config.
- */
 export interface PolicyPipelineConfig {
-  /** Path to the policy YAML file, relative to rootDir */
-  policyFile: string;
-
-  /** Max number of triage events to process per run (default: 50) */
-  maxEvents?: number;
-
-  /** Whether to run Claude enrichment for approved items (default: true) */
-  enableClaudeEnrichment?: boolean;
-
-  /** Timeout in ms for local LLM enrichment per event (default: 30000) */
+  /** Directory containing per-source policy files (email.yaml, slack.yaml, etc.) */
+  policyDir?: string;
+  /** Single policy file fallback (legacy) */
+  policyFile?: string;
+  /** Max items to process per cycle (default: 50) */
+  batchSize?: number;
+  /** Timeout in ms for local LLM enrichment per item (default: 30000) */
   localLlmTimeout?: number;
-
-  /** Timeout in ms for Claude enrichment per event (default: 60000) */
-  claudeLlmTimeout?: number;
 }

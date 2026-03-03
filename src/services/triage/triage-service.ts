@@ -1,21 +1,21 @@
 /**
  * Triage MCP Service
  *
- * Exposes the human review queue via MCP so Claude (or the user) can inspect
- * pending ASK_HUMAN items and resolve them with answers that feed back into
+ * Exposes the triage queue via MCP so Claude (or the user) can inspect
+ * pending TRIAGE items and resolve them with answers that feed back into
  * the policy pipeline.
  *
  * Tools:
- *   triage.list-pending-reviews  — list pending ask_human items with event context
- *   triage.resolve-review        — resolve an item with a human answer
+ *   triage.list-pending-reviews  — list items with status: triage
+ *   triage.resolve-review        — resolve an item (sets status: inbox for re-eval)
  */
 
 import * as path from 'path';
 import { BaseService, ServiceConfig } from '../../types/service';
 import { Tool } from '../../types/tool';
 import { logger } from '../../common/logger';
-import { listByStatus, updateItemStatus } from '../../lib/triage/human-queue-store';
-import { getEvent } from '../../lib/triage/triage-event-store';
+import { listItems, getItem, updateItem } from '../../lib/item/item-store';
+import type { Action } from '../../lib/item/types';
 
 export class TriageService implements BaseService {
   public readonly config: ServiceConfig;
@@ -49,9 +49,9 @@ export class TriageService implements BaseService {
       {
         name: 'list-pending-reviews',
         description:
-          'List all pending human review items (ask_human) from the triage queue. ' +
-          'Returns each item with its question and the associated email/calendar event context ' +
-          '(title, snippet, signals, latest policy decision) so you can help decide what to do.',
+          'List all items waiting for human review (status: triage). ' +
+          'Returns each item with its triage question and context ' +
+          '(source, title, body preview, signals) so you can help decide what to do.',
         inputSchema: {
           type: 'object',
           properties: {},
@@ -62,22 +62,22 @@ export class TriageService implements BaseService {
       {
         name: 'resolve-review',
         description:
-          'Resolve a pending human review item with an answer. ' +
-          'The answer is stored on the queue item and the policy pipeline will ' +
-          're-evaluate the original event on its next cycle using your response as context.',
+          'Resolve a pending triage item with an answer. ' +
+          'The answer is stored on the TRIAGE action and the item is moved back to inbox ' +
+          'so the policy pipeline re-evaluates it with your response as context.',
         inputSchema: {
           type: 'object',
           properties: {
             id: {
               type: 'string',
-              description: 'The UUID of the human queue item to resolve (from list-pending-reviews)',
+              description: 'The item ID to resolve (from list-pending-reviews)',
             },
             answer: {
               type: 'string',
               description:
                 'Your decision or instruction for this item. ' +
-                'Examples: "Archive it", "Create a task: book LNER tickets for BCN", ' +
-                '"Flag and reply: I\'ll review by Friday"',
+                "Examples: 'Archive it', 'Create a task: book LNER tickets for BCN', " +
+                "'Flag and reply: I'll review by Friday'",
             },
           },
           required: ['id', 'answer'],
@@ -88,43 +88,37 @@ export class TriageService implements BaseService {
   }
 
   private async listPendingReviews(_input: Record<string, unknown>): Promise<unknown> {
-    const items = await listByStatus(this.systemDir, ['pending']);
-    const askHumanItems = items.filter((i) => i.itemType === 'ask_human');
+    const items = await listItems(this.systemDir, ['triage']);
 
-    if (askHumanItems.length === 0) {
+    if (items.length === 0) {
       return { count: 0, reviews: [], message: 'No pending reviews.' };
     }
 
-    const reviews = await Promise.all(
-      askHumanItems.map(async (item) => {
-        const event = await getEvent(this.systemDir, item.eventRef);
+    const reviews = items
+      .map((item) => {
+        const triageAction = item.actions
+          .filter((a: Action) => a.type === 'TRIAGE' && a.status === 'pending')
+          .pop();
+        if (!triageAction) return null;
+
+        const title =
+          item.type === 'MESSAGE' ? (item.subject ?? `Message from ${item.source}`) : item.title;
+
+        const body = item.type === 'MESSAGE' ? item.body : (item.description ?? '');
+
         return {
           id: item.id,
           createdAt: item.createdAt,
-          question: item.question ?? '(no question specified)',
-          event: event
-            ? {
-                eventId: event.eventId,
-                source: event.source,
-                title: event.title,
-                author: event.author,
-                receivedAt: event.receivedAt,
-                snippet: event.snippet || '(no snippet)',
-                signals: Object.entries(event.signals)
-                  .filter(([, v]) => v === true)
-                  .map(([k]) => k),
-                latestDecision: event.latestPassTimestamp
-                  ? {
-                      timestamp: event.latestPassTimestamp,
-                      intent: event.extracted?.['intent'],
-                      confidence: event.extracted?.['confidence'],
-                    }
-                  : null,
-              }
-            : { eventId: item.eventRef, note: 'Event file not found (may have been archived)' },
+          source: item.source,
+          title,
+          question: triageAction.question ?? '(no question specified)',
+          bodyPreview: body ? body.slice(0, 500) : '',
+          signals: Object.entries(item.signals ?? {})
+            .filter(([, v]) => v === true)
+            .map(([k]) => k),
         };
       })
-    );
+      .filter((r): r is NonNullable<typeof r> => r !== null);
 
     logger.info({
       operation: 'triage_list_pending_reviews',
@@ -146,11 +140,31 @@ export class TriageService implements BaseService {
       return { success: false, error: 'Missing or empty "answer" parameter' };
     }
 
-    const found = await updateItemStatus(this.systemDir, id, 'resolved', answer.trim());
-
-    if (!found) {
-      return { success: false, error: `No pending review found with id "${id}"` };
+    const item = await getItem(this.systemDir, id);
+    if (!item) {
+      return { success: false, error: `No item found with id "${id}"` };
     }
+    if (item.status !== 'triage') {
+      return {
+        success: false,
+        error: `Item "${id}" is not in triage state (status: ${item.status})`,
+      };
+    }
+
+    // Mark the pending TRIAGE action as done with the human answer
+    const triageAction = item.actions
+      .filter((a: Action) => a.type === 'TRIAGE' && a.status === 'pending')
+      .pop();
+    if (triageAction) {
+      triageAction.status = 'done';
+      triageAction.answer = answer.trim();
+      triageAction.at = new Date().toISOString();
+    }
+
+    // Send back to inbox for policy re-evaluation with the answer in context
+    item.status = 'inbox';
+
+    await updateItem(this.systemDir, item);
 
     logger.info({
       operation: 'triage_resolve_review',
@@ -161,8 +175,8 @@ export class TriageService implements BaseService {
     return {
       success: true,
       message:
-        `Review ${id} resolved. The policy pipeline will re-evaluate the event ` +
-        `on its next cycle using your answer as context.`,
+        `Item ${id} resolved. The policy pipeline will re-evaluate on its next cycle ` +
+        `using your answer as context.`,
     };
   }
 }

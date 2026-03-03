@@ -23,6 +23,7 @@ import { BaseTokenStorage } from '../common/base-token-storage';
 import { isTokenExpired } from '../types/token';
 import type { MCPServer } from '../mcp-server';
 import { SessionCredentialStorage } from '../services/slack-saved-items/session-credential-storage';
+import { TriageRouter, CalendarResponder } from './triage-router';
 
 /**
  * Service registration for auth server
@@ -98,6 +99,7 @@ export class OAuthServer {
   private readonly protocol: 'http' | 'https';
   private isRunning: boolean = false;
   private mcpServer?: MCPServer;
+  private triageRouter?: TriageRouter;
   private readonly slackCredentialStorage: SessionCredentialStorage;
 
   constructor(port?: number) {
@@ -189,6 +191,26 @@ export class OAuthServer {
     logger.info({
       operation: 'mcp_server_registered',
       msg: 'MCP server registered with OAuth server for unified HTTP routing',
+    });
+  }
+
+  /**
+   * Register the Triage Review UI router.
+   * @param systemDir Path to the system directory (e.g., './system')
+   * @param contextDir Path to the context directory (e.g., './context')
+   * @param calendarResponder Optional service for responding to meeting invites
+   */
+  registerTriageRouter(
+    systemDir: string,
+    contextDir: string,
+    calendarResponder?: CalendarResponder
+  ): void {
+    this.triageRouter = new TriageRouter(systemDir, contextDir, calendarResponder);
+    logger.info({
+      operation: 'triage_router_registered',
+      systemDir,
+      contextDir,
+      msg: 'Triage Review UI registered at /triage',
     });
   }
 
@@ -338,6 +360,16 @@ export class OAuthServer {
     });
 
     try {
+      // Handle Triage Review UI routes
+      if (pathname === '/triage' || pathname.startsWith('/triage/')) {
+        if (this.triageRouter) {
+          await this.triageRouter.handleRequest(req, res, pathname);
+        } else {
+          this.renderError(res, 'Triage UI Not Available', 'Triage router not registered');
+        }
+        return;
+      }
+
       // Handle MCP routes first
       if (pathname === '/mcp' || pathname.startsWith('/mcp/')) {
         if (!this.mcpServer) {
@@ -786,38 +818,38 @@ export class OAuthServer {
     const statusConfig = {
       connected: {
         badge: '✓ Connected',
-        color: '#5cb85c',
-        bgColor: '#d4edda',
+        color: '#3fb950',
+        bgColor: 'rgba(63,185,80,0.15)',
       },
       available: {
         badge: '✓ Available',
-        color: '#5cb85c',
-        bgColor: '#d4edda',
+        color: '#3fb950',
+        bgColor: 'rgba(63,185,80,0.15)',
       },
       expired: {
         badge: '! Expired',
-        color: '#f0ad4e',
-        bgColor: '#fff3cd',
+        color: '#d29922',
+        bgColor: 'rgba(210,153,34,0.15)',
       },
       requires_auth: {
         badge: '○ Not Authenticated',
-        color: '#6c757d',
-        bgColor: '#e9ecef',
+        color: '#8b949e',
+        bgColor: 'rgba(139,148,158,0.15)',
       },
       unavailable: {
         badge: '○ Unavailable',
-        color: '#f0ad4e',
-        bgColor: '#fff3cd',
+        color: '#d29922',
+        bgColor: 'rgba(210,153,34,0.15)',
       },
       not_configured: {
         badge: '○ Not Configured',
-        color: '#6c757d',
-        bgColor: '#e9ecef',
+        color: '#8b949e',
+        bgColor: 'rgba(139,148,158,0.15)',
       },
       error: {
         badge: '✗ Error',
-        color: '#d9534f',
-        bgColor: '#f8d7da',
+        color: '#f85149',
+        bgColor: 'rgba(248,81,73,0.15)',
       },
     };
 
@@ -927,7 +959,7 @@ export class OAuthServer {
    * Render success page
    */
   private renderSuccess(res: http.ServerResponse, title: string, message: string): void {
-    const html = this.renderHtml(title, title, `<p>${message}</p>`, 'success');
+    const html = this.renderHtml(title, title, `<div class="message-box"><p>${message}</p></div>`, 'success');
     res.writeHead(200, { 'Content-Type': 'text/html' });
     res.end(html);
   }
@@ -936,7 +968,7 @@ export class OAuthServer {
    * Render error page
    */
   private renderError(res: http.ServerResponse, title: string, message: string): void {
-    const html = this.renderHtml(title, title, `<p>${message}</p>`, 'error');
+    const html = this.renderHtml(title, title, `<div class="message-box"><p>${message}</p></div>`, 'error');
     res.writeHead(400, { 'Content-Type': 'text/html' });
     res.end(html);
   }
@@ -950,147 +982,189 @@ export class OAuthServer {
     content: string,
     type: 'success' | 'error' | 'info' = 'info'
   ): string {
-    const colors = {
-      success: { heading: '#5cb85c', bg: '#d4edda', border: '#c3e6cb' },
-      error: { heading: '#d9534f', bg: '#f8d7da', border: '#f5c6cb' },
-      info: { heading: '#0078d4', bg: '#e7f6fd', border: '#b3e0ff' },
-    };
+    const accentColor = { success: '#3fb950', error: '#f85149', info: '#58a6ff' }[type];
 
-    const color = colors[type];
+    const logoSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+        <circle cx="11" cy="3"  r="2.5" fill="#58a6ff"/>
+        <circle cx="3"  cy="17" r="2.5" fill="#58a6ff"/>
+        <circle cx="19" cy="17" r="2.5" fill="#58a6ff"/>
+        <circle cx="11" cy="11" r="2"   fill="#58a6ff" fill-opacity="0.45"/>
+        <line x1="11" y1="5.5" x2="11"    y2="9"    stroke="#58a6ff" stroke-width="1.2" stroke-opacity="0.65"/>
+        <line x1="9.3"  y1="12.3" x2="5.2"  y2="15"  stroke="#58a6ff" stroke-width="1.2" stroke-opacity="0.65"/>
+        <line x1="12.7" y1="12.3" x2="16.8" y2="15"  stroke="#58a6ff" stroke-width="1.2" stroke-opacity="0.65"/>
+        <line x1="3"  y1="14.5" x2="11" y2="5.5"  stroke="#58a6ff" stroke-width="1" stroke-opacity="0.28"/>
+        <line x1="11" y1="5.5"  x2="19" y2="14.5" stroke="#58a6ff" stroke-width="1" stroke-opacity="0.28"/>
+        <line x1="3"  y1="17"   x2="19" y2="17"   stroke="#58a6ff" stroke-width="1" stroke-opacity="0.28"/>
+      </svg>`;
 
-    return `
-      <html>
-        <head>
-          <title>${title}</title>
-          <style>
-            body {
-              font-family: Arial, sans-serif;
-              max-width: 1200px;
-              margin: 0 auto;
-              padding: 20px;
-              background-color: #f5f5f5;
-            }
-            h1 {
-              color: ${color.heading};
-              margin-bottom: 10px;
-            }
-            .content-box {
-              background-color: ${color.bg};
-              border: 1px solid ${color.border};
-              padding: 15px;
-              border-radius: 4px;
-              margin: 15px 0;
-            }
-            code {
-              background: #f4f4f4;
-              padding: 2px 6px;
-              border-radius: 4px;
-              font-family: monospace;
-            }
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${title}</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      height: 100%;
+      background: #0d1117;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+      display: flex;
+      flex-direction: column;
+    }
+    a { color: #58a6ff; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    code {
+      background: #21262d;
+      border: 1px solid #30363d;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+      font-size: 0.88em;
+    }
+    strong { color: #e6edf3; }
 
-            /* Dashboard styles */
-            .dashboard-intro {
-              margin-bottom: 30px;
-            }
-            .service-grid {
-              display: grid;
-              grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
-              gap: 20px;
-              margin-top: 20px;
-            }
-            .service-card {
-              background: white;
-              border: 2px solid #ddd;
-              border-radius: 8px;
-              padding: 20px;
-              box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-              transition: box-shadow 0.2s;
-            }
-            .service-card:hover {
-              box-shadow: 0 4px 8px rgba(0,0,0,0.15);
-            }
-            .service-header {
-              display: flex;
-              justify-content: space-between;
-              align-items: center;
-              margin-bottom: 15px;
-              gap: 15px;
-            }
-            .service-header h2 {
-              margin: 0;
-              font-size: 1.4em;
-              color: #333;
-            }
-            .status-badge {
-              padding: 6px 12px;
-              border-radius: 4px;
-              font-size: 0.9em;
-              font-weight: bold;
-              white-space: nowrap;
-            }
-            .service-details {
-              margin: 15px 0;
-              color: #666;
-            }
-            .service-details p {
-              margin: 8px 0;
-              line-height: 1.5;
-            }
-            .service-actions {
-              margin-top: 15px;
-              display: flex;
-              gap: 10px;
-            }
-            .btn {
-              display: inline-block;
-              padding: 10px 20px;
-              text-decoration: none;
-              border-radius: 4px;
-              font-weight: bold;
-              transition: all 0.2s;
-              text-align: center;
-            }
-            .btn-primary {
-              background-color: #0078d4;
-              color: white;
-            }
-            .btn-primary:hover {
-              background-color: #005a9e;
-            }
-            .no-services {
-              text-align: center;
-              padding: 40px;
-              color: #666;
-              font-size: 1.1em;
-            }
+    /* ── Nav ── */
+    #main-nav {
+      height: 48px;
+      background: #161b22;
+      border-bottom: 1px solid #30363d;
+      display: flex;
+      align-items: center;
+      padding: 0 16px;
+      flex-shrink: 0;
+    }
+    .nav-brand {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      text-decoration: none;
+      color: #e6edf3;
+    }
+    .nav-brand:hover { text-decoration: none; }
+    .nav-title { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; color: #e6edf3; }
+    .nav-links { display: flex; list-style: none; gap: 4px; margin-left: auto; }
+    .nav-link {
+      padding: 5px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      color: #8b949e;
+      text-decoration: none;
+      transition: background 0.15s, color 0.15s;
+    }
+    .nav-link:hover { background: #21262d; color: #e6edf3; text-decoration: none; }
+    .nav-link.active { background: #21262d; color: #e6edf3; }
 
-            /* Responsive design */
-            @media (max-width: 768px) {
-              body {
-                padding: 10px;
-              }
-              .service-grid {
-                grid-template-columns: 1fr;
-              }
-              .service-header {
-                flex-direction: column;
-                align-items: flex-start;
-              }
-              .status-badge {
-                align-self: flex-start;
-              }
-            }
-          </style>
-        </head>
-        <body>
-          <h1>${heading}</h1>
-          <div class="content-box">
-            ${content}
-          </div>
-          <p><em>You can close this window and return to Claude.</em></p>
-        </body>
-      </html>
-    `;
+    /* ── Page layout ── */
+    #page-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 28px 24px;
+      max-width: 1040px;
+      width: 100%;
+      margin: 0 auto;
+    }
+    .page-heading {
+      font-size: 18px;
+      font-weight: 600;
+      color: ${accentColor};
+      margin-bottom: 20px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #30363d;
+    }
+    .page-close-hint { margin-top: 20px; color: #8b949e; font-size: 12px; }
+
+    /* ── Service cards ── */
+    .dashboard-intro { margin-bottom: 20px; color: #8b949e; }
+    .dashboard-intro p { margin: 4px 0; }
+    .service-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+      gap: 16px;
+    }
+    .service-card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 20px;
+      transition: border-color 0.15s;
+    }
+    .service-card:hover { border-color: rgba(88,166,255,0.3); }
+    .service-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+      gap: 12px;
+    }
+    .service-header h2 { margin: 0; font-size: 15px; font-weight: 600; color: #e6edf3; }
+    .status-badge {
+      padding: 3px 10px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 700;
+      white-space: nowrap;
+      letter-spacing: 0.02em;
+    }
+    .service-details { margin: 10px 0; color: #8b949e; font-size: 13px; }
+    .service-details p { margin: 5px 0; line-height: 1.5; }
+    .service-actions { margin-top: 14px; display: flex; gap: 8px; }
+    .btn {
+      display: inline-block;
+      padding: 7px 16px;
+      text-decoration: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      transition: opacity 0.15s;
+      cursor: pointer;
+      border: none;
+      font-family: inherit;
+    }
+    .btn:hover { opacity: 0.85; text-decoration: none; }
+    .btn-primary { background: #58a6ff; color: #0d1117; }
+    .no-services { text-align: center; padding: 40px; color: #8b949e; }
+
+    /* ── Simple message box (success / error pages) ── */
+    .message-box {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-left: 3px solid ${accentColor};
+      padding: 16px;
+      border-radius: 6px;
+      margin-bottom: 16px;
+    }
+
+    @media (max-width: 768px) {
+      #page-content { padding: 16px; }
+      .service-grid { grid-template-columns: 1fr; }
+      .service-header { flex-direction: column; align-items: flex-start; }
+      .status-badge { align-self: flex-start; }
+    }
+  </style>
+</head>
+<body>
+  <nav id="main-nav">
+    <a class="nav-brand" href="/">
+      ${logoSvg}
+      <span class="nav-title">Cerebro</span>
+    </a>
+    <ul class="nav-links">
+      <li><a href="/"       class="nav-link active">Auth</a></li>
+      <li><a href="/triage" class="nav-link">Triage</a></li>
+    </ul>
+  </nav>
+  <div id="page-content">
+    <h1 class="page-heading">${heading}</h1>
+    ${content}
+    <p class="page-close-hint"><em>You can close this window and return to Claude.</em></p>
+  </div>
+</body>
+</html>`;
   }
 
   // ─── Slack Saved Items Credential Management ────────────────────────────────
@@ -1206,20 +1280,31 @@ export class OAuthServer {
       `
       <style>
         .cred-status { padding: 12px 16px; border-radius: 6px; margin-bottom: 20px; border: 1px solid; }
-        .cred-status.not-configured { background: #e9ecef; border-color: #adb5bd; }
-        .cred-status.expired { background: #f8d7da; border-color: #f5c6cb; }
-        .cred-status.expiring-soon { background: #fff3cd; border-color: #ffeeba; }
-        .cred-status.configured { background: #d4edda; border-color: #c3e6cb; }
-        .cred-badge { font-weight: bold; font-size: 1.05em; }
-        .cred-form label { display: block; margin-top: 12px; font-weight: bold; }
-        .cred-form input[type=text] { width: 100%; box-sizing: border-box; padding: 8px; font-family: monospace; font-size: 0.85em; margin-top: 4px; border: 1px solid #ccc; border-radius: 4px; }
-        .cred-form button { margin-top: 16px; padding: 10px 24px; background: #0078d4; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 1em; }
-        .cred-form button:hover { background: #005a9e; }
-        #save-result { margin-top: 12px; padding: 10px; border-radius: 4px; display: none; }
-        .steps ol { padding-left: 20px; }
-        .steps li { margin-bottom: 8px; }
-        code { background: #f4f4f4; padding: 2px 5px; border-radius: 3px; font-size: 0.9em; }
-        .back-link { margin-top: 20px; display: inline-block; }
+        .cred-status.not-configured { background: rgba(139,148,158,0.1); border-color: rgba(139,148,158,0.3); color: #8b949e; }
+        .cred-status.expired        { background: rgba(248,81,73,0.1);   border-color: rgba(248,81,73,0.3);   color: #f85149; }
+        .cred-status.expiring-soon  { background: rgba(210,153,34,0.1);  border-color: rgba(210,153,34,0.3);  color: #d29922; }
+        .cred-status.configured     { background: rgba(63,185,80,0.1);   border-color: rgba(63,185,80,0.3);   color: #3fb950; }
+        .cred-status p { color: #e6edf3; margin-top: 6px; }
+        .cred-badge { font-weight: 700; font-size: 0.95em; letter-spacing: 0.02em; }
+        h3 { font-size: 14px; font-weight: 600; color: #8b949e; text-transform: uppercase; letter-spacing: 0.05em; margin: 20px 0 10px; }
+        .cred-form label { display: block; margin-top: 14px; font-weight: 600; font-size: 13px; color: #e6edf3; }
+        .cred-form input[type=text] {
+          width: 100%; padding: 8px 12px; font-family: 'SFMono-Regular', Consolas, monospace; font-size: 0.85em;
+          margin-top: 6px; border: 1px solid #30363d; border-radius: 6px;
+          background: #21262d; color: #e6edf3; outline: none;
+        }
+        .cred-form input[type=text]:focus { border-color: #58a6ff; box-shadow: 0 0 0 3px rgba(88,166,255,0.2); }
+        .cred-form button {
+          margin-top: 16px; padding: 8px 20px; background: #58a6ff; color: #0d1117;
+          border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600; font-family: inherit;
+        }
+        .cred-form button:hover { opacity: 0.85; }
+        #save-result { margin-top: 12px; padding: 10px 14px; border-radius: 6px; display: none; font-size: 13px; border: 1px solid; }
+        .steps ol { padding-left: 20px; color: #8b949e; }
+        .steps p { color: #8b949e; margin-bottom: 10px; }
+        .steps li { margin-bottom: 8px; color: #8b949e; }
+        .steps li strong { color: #e6edf3; }
+        .back-link { margin-top: 24px; display: inline-block; font-size: 13px; }
       </style>
       ${statusHtml}
       <h3>Extraction Instructions</h3>
@@ -1263,19 +1348,23 @@ export class OAuthServer {
             const data = await resp.json();
             result.style.display = 'block';
             if (data.success) {
-              result.style.background = '#d4edda';
-              result.style.border = '1px solid #c3e6cb';
+              result.style.background = 'rgba(63,185,80,0.1)';
+              result.style.borderColor = 'rgba(63,185,80,0.3)';
+              result.style.color = '#3fb950';
               result.textContent = 'Credentials saved. Estimated expiry: ' + data.estimatedExpiresAt;
               document.getElementById('xoxcToken').value = '';
               document.getElementById('xoxdCookie').value = '';
             } else {
-              result.style.background = '#f8d7da';
-              result.style.border = '1px solid #f5c6cb';
+              result.style.background = 'rgba(248,81,73,0.1)';
+              result.style.borderColor = 'rgba(248,81,73,0.3)';
+              result.style.color = '#f85149';
               result.textContent = 'Error: ' + (data.error || 'Unknown error');
             }
           } catch(err) {
             result.style.display = 'block';
-            result.style.background = '#f8d7da';
+            result.style.background = 'rgba(248,81,73,0.1)';
+            result.style.borderColor = 'rgba(248,81,73,0.3)';
+            result.style.color = '#f85149';
             result.textContent = 'Network error saving credentials.';
           }
         });
@@ -1302,24 +1391,24 @@ export class OAuthServer {
 
     if (!creds) {
       badge = '○ Not Configured';
-      badgeColor = '#6c757d';
-      badgeBg = '#e9ecef';
+      badgeColor = '#8b949e';
+      badgeBg = 'rgba(139,148,158,0.15)';
       statusMsg = 'No credentials stored. Set up via the credentials page.';
     } else if (this.slackCredentialStorage.isExpired()) {
       badge = '✗ Expired';
-      badgeColor = '#d9534f';
-      badgeBg = '#f8d7da';
+      badgeColor = '#f85149';
+      badgeBg = 'rgba(248,81,73,0.15)';
       statusMsg = `Credentials expired (saved at ${new Date(creds.savedAt).toLocaleString()}).`;
     } else if (this.slackCredentialStorage.isExpiringSoon()) {
       badge = '⚠ Expiring Soon';
-      badgeColor = '#f0ad4e';
-      badgeBg = '#fff3cd';
+      badgeColor = '#d29922';
+      badgeBg = 'rgba(210,153,34,0.15)';
       const exp = this.slackCredentialStorage.getEstimatedExpiresAt();
       statusMsg = `Credentials expire ~${new Date(exp!).toLocaleString()}. Refresh soon.`;
     } else {
       badge = '✓ Configured';
-      badgeColor = '#5cb85c';
-      badgeBg = '#d4edda';
+      badgeColor = '#3fb950';
+      badgeBg = 'rgba(63,185,80,0.15)';
       const exp = this.slackCredentialStorage.getEstimatedExpiresAt();
       statusMsg = `Active. Estimated expiry: ${new Date(exp!).toLocaleString()}.`;
     }

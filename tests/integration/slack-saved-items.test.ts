@@ -2,7 +2,7 @@
  * Integration test for Slack Save for Later pipeline (Feature 020)
  *
  * Validates the full pipeline:
- *   list-saved-items → mark-saved-item-complete → heartbeat ingestion → TriageEvent written
+ *   list-saved-items → mark-saved-item-complete → heartbeat ingestion → MessageItem written
  * Includes idempotency and credential-expiry scenarios.
  */
 
@@ -66,7 +66,10 @@ function makeApiClient(): jest.Mocked<WebclientApiClient> {
   return {
     savedList: jest.fn().mockResolvedValue(makeListResponse([])),
     savedUpdate: jest.fn().mockResolvedValue(undefined),
-    fetchMessageText: jest.fn().mockResolvedValue({ text: 'Can you review the Q1 report by Friday?', userName: 'U09876ABCD' }),
+    fetchMessageText: jest.fn().mockResolvedValue({
+      text: 'Can you review the Q1 report by Friday?',
+      userName: 'U09876ABCD',
+    }),
     resolveWorkspaceUrl: jest.fn().mockResolvedValue('https://testworkspace.slack.com'),
   } as unknown as jest.Mocked<WebclientApiClient>;
 }
@@ -86,12 +89,12 @@ function makeTaskConfig(): TaskConfig {
 
 describe('Slack Saved Items — Full Pipeline Integration', () => {
   let tmpDir: string;
-  let triageDir: string;
+  let messagesDir: string;
 
   beforeEach(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebro-slack-integration-'));
-    triageDir = path.join(tmpDir, 'triage');
-    await fs.mkdir(triageDir, { recursive: true });
+    messagesDir = path.join(tmpDir, 'messages');
+    await fs.mkdir(messagesDir, { recursive: true });
   });
 
   afterEach(async () => {
@@ -112,8 +115,8 @@ describe('Slack Saved Items — Full Pipeline Integration', () => {
     const service = new SlackSavedItemsService(storage, apiClient);
     await service.initialize();
 
-    const tool = service.getTools().find((t) => t.name === 'list-saved-items')!;
-    const result = await tool.handler({}) as any;
+    const tool = service.getTools().find((t) => t.name === 'list-saved-items');
+    const result = (await tool.handler({})) as any;
 
     expect(result.items).toHaveLength(2);
     expect(result.items[0].messageText).toBe('Can you review the Q1 report by Friday?');
@@ -130,16 +133,16 @@ describe('Slack Saved Items — Full Pipeline Integration', () => {
     const service = new SlackSavedItemsService(storage, apiClient);
     await service.initialize();
 
-    const tool = service.getTools().find((t) => t.name === 'mark-saved-item-complete')!;
-    const result = await tool.handler({ channel: 'C0001', ts: '1740000001.000000' }) as any;
+    const tool = service.getTools().find((t) => t.name === 'mark-saved-item-complete');
+    const result = (await tool.handler({ channel: 'C0001', ts: '1740000001.000000' })) as any;
 
     expect(result.success).toBe(true);
     expect(apiClient.savedUpdate).toHaveBeenCalledWith('C0001', '1740000001.000000');
   });
 
-  // ─── Scenario 3: heartbeat ingestion writes TriageEvent files ────────────
+  // ─── Scenario 3: heartbeat ingestion writes MessageItem YAML files ────────
 
-  it('heartbeat task writes TriageEvent for each uncompleted item', async () => {
+  it('heartbeat task writes MessageItem YAML for each uncompleted item', async () => {
     const apiClient = makeApiClient();
     const item1 = makeRawItem({ item_id: 'C0001', ts: '1740000001.000000' });
     const item2 = makeRawItem({ item_id: 'C0002', ts: '1740000002.000000' });
@@ -148,13 +151,14 @@ describe('Slack Saved Items — Full Pipeline Integration', () => {
     const task = new SlackSavedItemsIngestionTask(apiClient, tmpDir);
     await task.execute(makeTaskConfig());
 
-    const files = await fs.readdir(triageDir);
+    const files = await fs.readdir(messagesDir);
     expect(files).toHaveLength(2);
+    expect(files.every((f) => f.endsWith('.yaml'))).toBe(true);
 
-    // Verify TriageEvent content
-    const content = await fs.readFile(path.join(triageDir, files[0]!), 'utf-8');
+    // Verify MessageItem content
+    const content = await fs.readFile(path.join(messagesDir, files[0]), 'utf-8');
     expect(content).toContain('source: slack-saved');
-    expect(content).toContain('status: pending');
+    expect(content).toContain('status: inbox');
   });
 
   // ─── Scenario 4: heartbeat calls savedUpdate after each ingestion ─────────
@@ -175,7 +179,7 @@ describe('Slack Saved Items — Full Pipeline Integration', () => {
 
   // ─── Scenario 5: idempotency on re-run ───────────────────────────────────
 
-  it('re-run of heartbeat task does not create duplicate TriageEvent files', async () => {
+  it('re-run of heartbeat task does not create duplicate MessageItem files', async () => {
     const apiClient = makeApiClient();
     const item = makeRawItem({ item_id: 'C0001', ts: '1740000001.000000' });
     apiClient.savedList
@@ -186,8 +190,8 @@ describe('Slack Saved Items — Full Pipeline Integration', () => {
     await task.execute(makeTaskConfig());
     await task.execute(makeTaskConfig());
 
-    const files = await fs.readdir(triageDir);
-    // Idempotent: same eventId → same file, no duplicate
+    const files = await fs.readdir(messagesDir);
+    // Idempotent: same stable ID → same file, no duplicate
     expect(files).toHaveLength(1);
   });
 
@@ -200,7 +204,7 @@ describe('Slack Saved Items — Full Pipeline Integration', () => {
     const task = new SlackSavedItemsIngestionTask(apiClient, tmpDir);
     await expect(task.execute(makeTaskConfig())).resolves.not.toThrow();
 
-    const files = await fs.readdir(triageDir);
+    const files = await fs.readdir(messagesDir);
     expect(files).toHaveLength(0);
     expect(apiClient.savedUpdate).not.toHaveBeenCalled();
   });
@@ -214,8 +218,8 @@ describe('Slack Saved Items — Full Pipeline Integration', () => {
     const service = new SlackSavedItemsService(storage, apiClient);
     await service.initialize();
 
-    const tool = service.getTools().find((t) => t.name === 'list-saved-items')!;
-    const result = await tool.handler({}) as any;
+    const tool = service.getTools().find((t) => t.name === 'list-saved-items');
+    const result = (await tool.handler({})) as any;
 
     expect(result.code).toBe('credentials_expired');
     expect(result.dashboardUrl).toContain('/auth/slack-saved-items/credentials');

@@ -1,19 +1,21 @@
 /**
  * Slack Saved Items Ingestion Task (Feature 020)
  *
- * Heartbeat task that fetches all uncompleted Slack saved items, writes a
- * TriageEvent for each, and optionally marks them complete in Slack — mirroring
- * the email-ingestion-task pattern exactly.
+ * Fetches all uncompleted Slack saved items and writes a MessageItem for each
+ * to system/messages/ — mirroring the email-ingestion-task pattern.
  */
 
 import * as path from 'path';
 import type { TaskConfig } from '../../../types/heartbeat';
 import type { TaskHandler } from '../types';
-import { saveEvent } from '../../../lib/triage/triage-event-store';
-import type { TriageEvent, EventSignals } from '../../../lib/policy/types';
+import { saveItem, getItem } from '../../../lib/item/item-store';
+import type { MessageItem, Signals } from '../../../lib/item/types';
 import { logger } from '../../../common/logger';
 import type { WebclientApiClient } from '../../slack-saved-items/webclient-api-client';
-import { CredentialsExpiredError, CredentialsNotConfiguredError } from '../../slack-saved-items/webclient-api-client';
+import {
+  CredentialsExpiredError,
+  CredentialsNotConfiguredError,
+} from '../../slack-saved-items/webclient-api-client';
 import type { SavedItem } from '../../../types/slack-saved-items';
 
 interface SlackSavedItemsIngestionConfig {
@@ -43,19 +45,20 @@ export class SlackSavedItemsIngestionTask implements TaskHandler {
       message: `Starting Slack saved-items ingestion (markAsComplete=${markAsComplete})`,
     });
 
-    // Paginate through all uncompleted saved items
     let allItems: SavedItem[] = [];
     try {
       let cursor: string | undefined;
       do {
         const response = await this.apiClient.savedList(cursor);
 
-        // Fetch message text for each item
         const pageItems = await Promise.all(
           response.saved_items
             .filter((raw) => raw.state === 'uncompleted')
             .map(async (raw) => {
-              const { text, userName } = await this.apiClient.fetchMessageText(raw.item_id, raw.ts);
+              const { text, userName } = await this.apiClient.fetchMessageText(
+                raw.item_id,
+                raw.ts
+              );
               return {
                 itemId: raw.item_id,
                 itemType: raw.item_type,
@@ -81,7 +84,7 @@ export class SlackSavedItemsIngestionTask implements TaskHandler {
         logger.error({
           operation: 'slack_saved_items_ingestion_auth_error',
           error: (err as Error).message,
-          message: `Slack saved-items ingestion aborted: ${(err as Error).message}. Visit http://localhost:3333/auth/slack-saved-items/credentials to refresh.`,
+          message: `Slack saved-items ingestion aborted: ${(err as Error).message}`,
         });
         return;
       }
@@ -94,14 +97,26 @@ export class SlackSavedItemsIngestionTask implements TaskHandler {
       message: `Fetched ${allItems.length} uncompleted saved items`,
     });
 
-    let eventsWritten = 0;
+    let itemsWritten = 0;
     let itemsCompleted = 0;
 
     for (const item of allItems) {
       try {
-        const event = this.buildTriageEvent(item);
-        await saveEvent(this.absoluteSystemDir, event);
-        eventsWritten++;
+        // Derive a stable ID from the slack item ID + timestamp
+        const stableId = `slack-${item.itemId}-${item.ts}`;
+        const existing = await getItem(this.absoluteSystemDir, stableId);
+        if (existing) {
+          logger.debug({
+            operation: 'slack_ingestion_skip_existing',
+            itemId: stableId,
+            message: `Skipping already-ingested Slack item: ${stableId}`,
+          });
+          continue;
+        }
+
+        const messageItem = this.buildMessageItem(item, stableId);
+        await saveItem(this.absoluteSystemDir, messageItem);
+        itemsWritten++;
 
         if (markAsComplete) {
           try {
@@ -111,9 +126,8 @@ export class SlackSavedItemsIngestionTask implements TaskHandler {
             logger.warn({
               operation: 'slack_saved_items_mark_complete_error',
               itemId: item.itemId,
-              ts: item.ts,
               error: (completeErr as Error).message,
-              message: `Failed to mark item ${item.itemId}/${item.ts} complete — continuing`,
+              message: `Failed to mark item ${item.itemId} complete — continuing`,
             });
           }
         }
@@ -122,7 +136,7 @@ export class SlackSavedItemsIngestionTask implements TaskHandler {
           operation: 'slack_saved_items_ingestion_item_error',
           itemId: item.itemId,
           error: (err as Error).message,
-          message: `Failed to write triage event for item ${item.itemId} — continuing`,
+          message: `Failed to write item for ${item.itemId} — continuing`,
         });
       }
     }
@@ -130,52 +144,41 @@ export class SlackSavedItemsIngestionTask implements TaskHandler {
     logger.info({
       operation: 'slack_saved_items_ingestion_complete',
       itemsFetched: allItems.length,
-      eventsWritten,
+      itemsWritten,
       itemsCompleted,
-      message: `Slack saved-items ingestion complete: ${eventsWritten}/${allItems.length} events written, ${itemsCompleted} marked complete`,
+      message: `Slack ingestion complete: ${itemsWritten}/${allItems.length} items written`,
     });
   }
 
-  buildTriageEvent(item: SavedItem): TriageEvent {
-    const tsForId = item.ts.replace('.', '-');
-    const date = new Date(item.dateCreated * 1000);
-    const datePrefix = date.toISOString().slice(0, 10).replace(/-/g, '');
-
-    const title = item.messageText.slice(0, 80) || `Slack message ${item.ts}`;
-    const snippet = item.messageText.slice(0, 500);
-
-    const signals: EventSignals = {
-      asksForAction: this.detectActionRequest(item.messageText),
-      mentionsMoney: this.detectMoney(item.messageText),
-      mentionsMeeting: this.detectMeeting(item.messageText),
+  buildMessageItem(item: SavedItem, id: string): MessageItem {
+    const signals: Signals = {
       isAutomated: false,
       isBulk: false,
-      hasAttachments: false,
       hasUnsubscribe: false,
-      prioritySender: false,
-      outlookFirstSender: false,
+      hasAttachments: false,
+      isActionRequest: this.detectActionRequest(item.messageText),
+      mentionsMoney: this.detectMoney(item.messageText),
+      mentionsMeeting: this.detectMeeting(item.messageText),
+      isPrioritySender: false,
     };
 
     return {
-      eventId: `${datePrefix}-slack-${tsForId}`,
+      type: 'MESSAGE',
       source: 'slack-saved',
-      status: 'pending',
-      title,
-      author: item.userId,
-      receivedAt: new Date(item.dateCreated * 1000).toISOString(),
-      snippet,
+      id,
+      status: 'inbox',
+      createdAt: new Date(item.dateCreated * 1000).toISOString(),
+      body: item.messageText,
+      user: item.userId,
+      slackTimestamp: item.ts,
       signals,
-      extracted: {},
-      passCount: 0,
-      passes: [],
-      sourceData: {
-        itemId: item.itemId,
-        ts: item.ts,
-        state: item.state,
-        dateCreated: item.dateCreated,
-        dateSnoozedUntil: item.dateSnoozedUntil,
-        isArchived: item.isArchived,
-      },
+      actions: [
+        {
+          type: 'INGEST',
+          at: new Date().toISOString(),
+          status: 'done',
+        },
+      ],
     };
   }
 
@@ -188,6 +191,8 @@ export class SlackSavedItemsIngestionTask implements TaskHandler {
   }
 
   private detectActionRequest(text: string): boolean {
-    return /please|action required|follow.?up|can you|could you|request|deadline|urgent/i.test(text);
+    return /please|action required|follow.?up|can you|could you|request|deadline|urgent/i.test(
+      text
+    );
   }
 }

@@ -5,5 +5,4 @@
 export * from './types';
 export * from './predicate';
 export * from './policy-loader';
-export * from './idempotency';
-// evaluator, safety-gates, conflict-resolver exported when implemented
+export * from './evaluator';

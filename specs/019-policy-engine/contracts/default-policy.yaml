@@ -1,6 +1,6 @@
-# Default Policy: Multi-Source Triage v1
-# This is the shipped default policy for the Cerebro policy engine.
-# Tune thresholds, labels, and folders here — no code changes required.
+# Default Policy: Multi-Source Triage v2
+# Updated for the new item-per-file design.
+# Action types: TRIAGE, MOVE, FLAG, LABEL, CREATE_TASK, JOURNAL_NOTE, RESPOND_CALENDAR, ARCHIVE
 #
 # Priority tiers:
 #   1100+ = hard filters (spam, blocklist)
@@ -13,21 +13,19 @@
 #   0-99    = fallback
 
 id: default-triage
-version: 1.0.0
+version: 2.0.0
 
 defaults:
-  # Confidence below this → safety gates may add ASK_HUMAN
+  # Confidence below this → safety gates add TRIAGE
   approvalThreshold: 0.75
 
-  # Confidence below this → suggest Claude enrichment
+  # Confidence below this → suggest enrichment
   claudeRecommendThreshold: 0.60
 
   # Risk level assigned when intent = UNKNOWN
   unknownIntentRisk: MEDIUM
 
-  # Semantic category → source system label string
-  # For Outlook: these are the Outlook category names.
-  # For other sources: treat as tag/label names.
+  # Semantic category → label string (Outlook category or tag)
   categories:
     newsletter: "ReadLater/Newsletter"
     receipt: "Records/Receipt"
@@ -42,7 +40,7 @@ defaults:
     archive: "Archive"
     inbox: "Inbox"
 
-  # Emails/authors in this list → prioritySender: true
+  # Emails/authors in this list → isPrioritySender: true
   senderAllowlist: []
     # - "boss@company.com"
     # - "cto@company.com"
@@ -52,8 +50,8 @@ defaults:
     # - "cheap-deals.example"
 
   conflictResolution:
-    # When ASK_HUMAN is present, suppress MOVE/ARCHIVE actions
-    askHumanBlocksMoveToArchive: true
+    # When TRIAGE is present, suppress MOVE actions
+    triageBlocksMove: true
 
 rules:
   # ============================================================
@@ -88,7 +86,7 @@ rules:
       rationale:
         - "Sender domain blocklist or strong spam heuristics matched."
     actions:
-      - type: CATEGORY
+      - type: LABEL
         name: "${defaults.categories.spamCandidate}"
       - type: MOVE
         folder: "${defaults.folders.archive}"
@@ -120,7 +118,7 @@ rules:
       rationale:
         - "Bulk/automated indicators (unsubscribe or bulk+automated combined)."
     actions:
-      - type: CATEGORY
+      - type: LABEL
         name: "${defaults.categories.newsletter}"
       - type: MOVE
         folder: "${defaults.folders.archive}"
@@ -148,7 +146,7 @@ rules:
       rationale:
         - "Money mention plus receipt/invoice/order/payment keywords."
     actions:
-      - type: CATEGORY
+      - type: LABEL
         name: "${defaults.categories.receipt}"
       - type: MOVE
         folder: "${defaults.folders.archive}"
@@ -158,7 +156,7 @@ rules:
   # 700 — Scheduling / coordination
   # ============================================================
 
-  - id: scheduling-flag
+  - id: scheduling-triage
     priority: 700
     when:
       any:
@@ -179,18 +177,17 @@ rules:
       rationale:
         - "Meeting/scheduling signals or calendar source."
     actions:
-      - type: CATEGORY
+      - type: LABEL
         name: "${defaults.categories.scheduling}"
-      - type: DRAFT_REPLY
-        template: scheduling_ack
-        requiresApproval: true
+      - type: TRIAGE
+        question: "This appears to be a scheduling item. Accept, decline, or tentatively accept?"
     terminal: true
 
   # ============================================================
   # 600 — Approval requests
   # ============================================================
 
-  - id: approval-request-ask-human
+  - id: approval-request-triage
     priority: 600
     when:
       any:
@@ -211,9 +208,9 @@ rules:
       rationale:
         - "Approval/sign-off language detected."
     actions:
-      - type: CATEGORY
+      - type: LABEL
         name: "${defaults.categories.approvalRequest}"
-      - type: ASK_HUMAN
+      - type: TRIAGE
         question: "This appears to require a decision or approval. What action should be taken?"
     terminal: true
 
@@ -221,11 +218,11 @@ rules:
   # 500 — Action required
   # ============================================================
 
-  - id: action-required-create-task
+  - id: action-required-triage
     priority: 500
     when:
       any:
-        - field: "signals.asksForAction"
+        - field: "signals.isActionRequest"
           op: eq
           value: true
         - field: "extracted.intent"
@@ -242,19 +239,19 @@ rules:
       rationale:
         - "Action/request cues detected in signals or subject."
     actions:
-      - type: CATEGORY
+      - type: LABEL
         name: "${defaults.categories.triageAction}"
-      - type: CREATE_TASK
-        template: action_required
       - type: FLAG
         flagStatus: flagged
+      - type: TRIAGE
+        question: "This email appears to require action. What would you like to do?"
     terminal: true
 
   # ============================================================
   # 300 — FYI / informational
   # ============================================================
 
-  - id: fyi-reading-pack
+  - id: fyi-skip
     priority: 300
     when:
       any:
@@ -265,7 +262,7 @@ rules:
             - field: "signals.isAutomated"
               op: eq
               value: false
-            - field: "signals.asksForAction"
+            - field: "signals.isActionRequest"
               op: eq
               value: false
             - field: "signals.isBulk"
@@ -279,18 +276,16 @@ rules:
       rationale:
         - "No action cues; non-automated, non-bulk — treat as informational."
     actions:
-      - type: CATEGORY
+      - type: LABEL
         name: "${defaults.categories.triageFYI}"
-      - type: CREATE_READING_PACK
-        template: reading_pack_entry
-        notePath: "system/artifacts/reading-packs/{{date:YYYY-MM-DD}}.md"
+      - type: ARCHIVE
     terminal: true
 
   # ============================================================
   # 0 — Fallback
   # ============================================================
 
-  - id: fallback-unknown-ask-human
+  - id: fallback-unknown-triage
     priority: 0
     when:
       any:
@@ -308,6 +303,6 @@ rules:
       rationale:
         - "Insufficient confidence or intent unknown — human decision required."
     actions:
-      - type: ASK_HUMAN
-        question: "Unclear what to do with this item. Options: keep, archive, create task, add to reading pack, draft reply?"
+      - type: TRIAGE
+        question: "Unclear what to do with this item. Options: keep, archive, create task, skip?"
     terminal: true

@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Triage</title>
+  <link rel="stylesheet" href="/triage/static/styles.css">
+</head>
+<body>
+
+  <!-- ── Top Navigation ────────────────────────────────────── -->
+  <nav id="main-nav">
+    <a class="nav-brand" href="/">
+      <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+        <circle cx="11" cy="3"  r="2.5" fill="#58a6ff"/>
+        <circle cx="3"  cy="17" r="2.5" fill="#58a6ff"/>
+        <circle cx="19" cy="17" r="2.5" fill="#58a6ff"/>
+        <circle cx="11" cy="11" r="2"   fill="#58a6ff" fill-opacity="0.45"/>
+        <line x1="11" y1="5.5" x2="11"   y2="9"    stroke="#58a6ff" stroke-width="1.2" stroke-opacity="0.65"/>
+        <line x1="9.3" y1="12.3" x2="5.2" y2="15"  stroke="#58a6ff" stroke-width="1.2" stroke-opacity="0.65"/>
+        <line x1="12.7" y1="12.3" x2="16.8" y2="15" stroke="#58a6ff" stroke-width="1.2" stroke-opacity="0.65"/>
+        <line x1="3"  y1="14.5" x2="11" y2="5.5" stroke="#58a6ff" stroke-width="1" stroke-opacity="0.28"/>
+        <line x1="11" y1="5.5"  x2="19" y2="14.5" stroke="#58a6ff" stroke-width="1" stroke-opacity="0.28"/>
+        <line x1="3"  y1="17"   x2="19" y2="17"   stroke="#58a6ff" stroke-width="1" stroke-opacity="0.28"/>
+      </svg>
+      <span class="nav-title">Cerebro</span>
+    </a>
+    <ul class="nav-links">
+      <li><a href="/"       class="nav-link">Auth</a></li>
+      <li><a href="/triage" class="nav-link active">Triage</a></li>
+    </ul>
+  </nav>
+
+  <div id="app">
+
+    <!-- ── Detail Panel (left) ───────────────────────────── -->
+    <div id="detail-panel">
+
+      <!-- Placeholder shown when no item is selected -->
+      <div id="detail-empty">
+        <span class="empty-icon">&#128229;</span>
+        <p>Select an item to review</p>
+      </div>
+
+      <!-- Populated when an item is selected -->
+      <div id="detail-content">
+
+        <!-- Item header: title + metadata -->
+        <div id="detail-header">
+          <div id="detail-title"></div>
+          <div id="detail-meta">
+            <span class="meta-item" id="meta-source"></span>
+            <span class="meta-item" id="meta-date"></span>
+          </div>
+        </div>
+
+        <!-- Body row: markdown content + vertical calendar sidebar -->
+        <div id="detail-body-row">
+
+          <!-- Scrollable body: markdown content from HQ item -->
+          <div id="item-body"></div>
+
+          <!-- Vertical calendar sidebar (meeting-invite only) -->
+          <div id="cal-widget" class="cal-widget">
+            <div id="cal-date-label" class="cal-widget-label"></div>
+            <div id="cal-loading" class="cal-loading">Loading&#8230;</div>
+            <div id="cal-scroll" class="cal-scroll">
+              <div id="cal-timeline" class="cal-grid"></div>
+            </div>
+            <div id="cal-error" class="cal-error"></div>
+            <div id="cal-recurrence" class="cal-recurrence" style="display:none"></div>
+          </div>
+
+        </div>
+
+        <!-- Small metadata strip (shown for meeting-invite items) -->
+        <div id="item-meta-footer" class="item-meta-footer"></div>
+
+        <!-- Standard resolution controls (email, slack, journal, etc.) -->
+        <div id="resolution-controls">
+
+          <!-- Done + Defer + Execute buttons -->
+          <div class="resolution-buttons">
+            <button class="btn btn-done" id="btn-done" disabled>Done</button>
+            <button class="btn btn-defer" id="btn-defer" disabled>Defer</button>
+            <button class="btn btn-execute" id="btn-execute" disabled title="Queue this item for autonomous Claude execution (SpecKit workflow on a branch)">Execute with Claude</button>
+          </div>
+
+          <!-- Delegate: text input + Accept -->
+          <div class="delegate-row">
+            <textarea
+              id="delegate-input"
+              placeholder="Type a prompt to delegate to the pipeline&#8230;"
+              disabled
+            ></textarea>
+            <button class="btn btn-accept" id="btn-accept" disabled>Accept</button>
+          </div>
+
+        </div>
+
+        <!-- Calendar response controls (meeting-invite only) -->
+        <div id="calendar-controls" style="display:none">
+          <div class="calendar-buttons">
+            <button class="btn btn-cal-accept"    id="btn-cal-accept"    disabled>&#10003; Accept</button>
+            <button class="btn btn-cal-tentative" id="btn-cal-tentative" disabled>&#126; Tentative</button>
+            <button class="btn btn-cal-decline"   id="btn-cal-decline"   disabled>&#10007; Decline</button>
+          </div>
+        </div>
+
+        <!-- Error banner (shown on API errors, shared by both control sets) -->
+        <div id="error-banner"></div>
+      </div>
+    </div>
+
+    <!-- ── Item List Panel (right) ───────────────────────── -->
+    <div id="list-panel">
+      <div id="list-header">
+        <h1>Inbox</h1>
+        <span id="item-count">0</span>
+      </div>
+
+      <!-- Items rendered here by app.js -->
+      <ul id="item-list"></ul>
+
+      <!-- Empty state -->
+      <div id="empty-state">
+        <span class="empty-icon">&#10003;</span>
+        <p>Nothing to review</p>
+      </div>
+    </div>
+
+  </div>
+  <script src="/triage/static/app.js"></script>
+</body>
+</html>

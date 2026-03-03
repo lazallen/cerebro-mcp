@@ -1,0 +1,214 @@
+# Email policy — Cerebro triage system
+# Handles: Microsoft Outlook email (source: email, meeting-invite)
+id: email-triage
+version: 1.0.0
+
+defaults:
+  approvalThreshold: 0.75
+  claudeRecommendThreshold: 0.60
+  unknownIntentRisk: MEDIUM
+  folders:
+    archive: "Archive"
+    inbox: "Inbox"
+  senderAllowlist: []
+  senderBlocklistDomains: []
+  conflictResolution:
+    triageBlocksMove: true
+
+rules:
+  - id: spam-blocklist
+    priority: 1100
+    when:
+      any:
+        - field: "from.email"
+          op: domain_in
+          value: "${defaults.senderBlocklistDomains}"
+        - all:
+            - field: "signals.isBulk"
+              op: eq
+              value: true
+            - field: "signals.isAutomated"
+              op: eq
+              value: true
+            - field: "signals.hasUnsubscribe"
+              op: eq
+              value: true
+            - field: "title"
+              op: matches
+              value: "(?i)free money|get rich|winner|act now|limited time|congratulations"
+    setClassification:
+      intent: SPAM
+      urgency: SOMEDAY
+      risk: LOW
+      confidence: 0.95
+      rationale: ["Spam signals matched."]
+    actions:
+      - type: MOVE
+        folder: "${defaults.folders.archive}"
+    terminal: true
+
+  - id: newsletter-archive
+    priority: 900
+    when:
+      any:
+        - field: "signals.hasUnsubscribe"
+          op: eq
+          value: true
+        - all:
+            - field: "signals.isBulk"
+              op: eq
+              value: true
+            - field: "signals.isAutomated"
+              op: eq
+              value: true
+    setClassification:
+      intent: NEWSLETTER
+      urgency: SOMEDAY
+      risk: LOW
+      confidence: 0.90
+      rationale: ["Bulk/automated newsletter."]
+    actions:
+      - type: LABEL
+        name: "ReadLater/Newsletter"
+      - type: MOVE
+        folder: "${defaults.folders.archive}"
+    terminal: true
+
+  - id: receipt-archive
+    priority: 880
+    when:
+      all:
+        - field: "signals.mentionsMoney"
+          op: eq
+          value: true
+        - any:
+            - field: "title"
+              op: matches
+              value: "(?i)receipt|invoice|order|payment|paid|statement"
+            - field: "snippet"
+              op: matches
+              value: "(?i)receipt|invoice|order|payment|paid|total|amount"
+    setClassification:
+      intent: RECEIPT
+      urgency: SOMEDAY
+      risk: LOW
+      confidence: 0.90
+      rationale: ["Receipt/payment signals."]
+    actions:
+      - type: LABEL
+        name: "Records/Receipt"
+      - type: MOVE
+        folder: "${defaults.folders.archive}"
+    terminal: true
+
+  - id: meeting-invite-triage
+    priority: 800
+    when:
+      field: "source"
+      op: eq
+      value: meeting-invite
+    setClassification:
+      intent: SCHEDULING
+      urgency: THIS_WEEK
+      risk: MEDIUM
+      confidence: 0.92
+      rationale: ["Meeting invite — requires accept/decline decision."]
+    actions:
+      - type: TRIAGE
+        question: "Meeting invite received. Accept, tentatively accept, or decline?"
+    terminal: true
+
+  - id: scheduling-triage
+    priority: 700
+    when:
+      any:
+        - field: "signals.mentionsMeeting"
+          op: eq
+          value: true
+        - field: "extracted.intent"
+          op: eq
+          value: SCHEDULING
+    setClassification:
+      intent: SCHEDULING
+      urgency: THIS_WEEK
+      risk: MEDIUM
+      confidence: 0.82
+      rationale: ["Scheduling/meeting signals."]
+    actions:
+      - type: TRIAGE
+        question: "This appears to be scheduling-related. What should be done?"
+    terminal: true
+
+  - id: action-required-triage
+    priority: 500
+    when:
+      any:
+        - field: "signals.isActionRequest"
+          op: eq
+          value: true
+        - field: "extracted.intent"
+          op: eq
+          value: ACTION_REQUIRED
+        - field: "title"
+          op: matches
+          value: "(?i)action required|please|can you|could you|follow.?up"
+    setClassification:
+      intent: ACTION_REQUIRED
+      urgency: THIS_WEEK
+      risk: MEDIUM
+      confidence: 0.80
+      rationale: ["Action/request signals detected."]
+    actions:
+      - type: LABEL
+        name: "Triage/Action"
+      - type: FLAG
+        flagStatus: flagged
+      - type: TRIAGE
+        question: "This email appears to require action. What would you like to do?"
+    terminal: true
+
+  - id: fyi-skip
+    priority: 300
+    when:
+      any:
+        - field: "extracted.intent"
+          op: eq
+          value: FYI
+        - all:
+            - field: "signals.isAutomated"
+              op: eq
+              value: false
+            - field: "signals.isActionRequest"
+              op: eq
+              value: false
+            - field: "signals.isBulk"
+              op: eq
+              value: false
+    setClassification:
+      intent: FYI
+      urgency: SOMEDAY
+      risk: LOW
+      confidence: 0.78
+      rationale: ["Informational — no action needed."]
+    actions:
+      - type: LABEL
+        name: "Triage/FYI"
+      - type: SKIP
+    terminal: true
+
+  - id: fallback-triage
+    priority: 0
+    when:
+      field: "source"
+      op: eq
+      value: email
+    setClassification:
+      intent: UNKNOWN
+      urgency: SOMEDAY
+      risk: MEDIUM
+      confidence: 0.50
+      rationale: ["No rule matched — human review required."]
+    actions:
+      - type: TRIAGE
+        question: "Unclear what to do with this item. Options: keep, archive, create task, skip?"
+    terminal: true

@@ -10,7 +10,7 @@ import type { HeartbeatConfig } from '../../src/types/heartbeat';
 
 // Mock dependencies for email triage task
 const mockGraphClient = {
-  getUnreadEmails: jest.fn().mockResolvedValue([]),
+  getEmailsForIngestion: jest.fn().mockResolvedValue([]),
 };
 
 const mockLfClient = {
@@ -54,7 +54,7 @@ describe('Heartbeat Integration Tests', () => {
           {
             id: 'task-1',
             name: 'Task 1',
-            type: 'email-triage',
+            type: 'email-ingestion',
             schedule: '0 * * * *',
             enabled: true,
             config: {
@@ -88,7 +88,7 @@ describe('Heartbeat Integration Tests', () => {
           {
             id: 'task-1',
             name: 'Task 1 Updated',
-            type: 'email-triage',
+            type: 'email-ingestion',
             schedule: '*/30 * * * *', // Changed schedule
             enabled: true,
             config: {
@@ -98,7 +98,7 @@ describe('Heartbeat Integration Tests', () => {
           {
             id: 'task-2',
             name: 'Task 2',
-            type: 'email-triage',
+            type: 'email-ingestion',
             schedule: '0 9 * * *',
             enabled: true,
             config: {
@@ -128,7 +128,7 @@ describe('Heartbeat Integration Tests', () => {
           {
             id: 'task-1',
             name: 'Task 1',
-            type: 'email-triage',
+            type: 'email-ingestion',
             schedule: '0 * * * *',
             enabled: true,
             config: {},
@@ -169,7 +169,7 @@ describe('Heartbeat Integration Tests', () => {
           {
             id: 'task-1',
             name: 'Task 1',
-            type: 'email-triage',
+            type: 'email-ingestion',
             schedule: '0 * * * *',
             enabled: true,
             config: {},
@@ -177,7 +177,7 @@ describe('Heartbeat Integration Tests', () => {
           {
             id: 'task-2',
             name: 'Task 2',
-            type: 'email-triage',
+            type: 'email-ingestion',
             schedule: '0 9 * * *',
             enabled: true,
             config: {},
@@ -204,7 +204,7 @@ describe('Heartbeat Integration Tests', () => {
           {
             id: 'task-1',
             name: 'Task 1',
-            type: 'email-triage',
+            type: 'email-ingestion',
             schedule: '0 * * * *',
             enabled: true,
             config: {},
@@ -231,7 +231,7 @@ describe('Heartbeat Integration Tests', () => {
           {
             id: 'test-task',
             name: 'Test Task',
-            type: 'email-triage',
+            type: 'email-ingestion',
             schedule: '0 * * * *',
             enabled: true,
             config: {
@@ -270,7 +270,7 @@ describe('Heartbeat Integration Tests', () => {
           {
             id: 'slow-task',
             name: 'Slow Task',
-            type: 'email-triage',
+            type: 'email-ingestion',
             schedule: '0 * * * *',
             enabled: true,
             config: {},

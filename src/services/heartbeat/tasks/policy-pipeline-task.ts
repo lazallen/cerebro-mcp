@@ -1,46 +1,61 @@
 /**
- * PolicyPipelineTask — the central orchestrator for the policy evaluation pipeline.
- * Runs all pipeline stages on each heartbeat cycle.
+ * PolicyPipelineTask — evaluates items and determines their next action.
  *
- * Pipeline stages (T041 wires them all together):
- *   1. Scan system/triage/ for pending/enriched events
- *   2. Run local enrichment on pending events (US8)
- *   3. Check system/human/ for approved claude_approval items, run Claude enrichment (US8)
- *   4. Process resolved ask_human items from system/human/ (US7)
- *   5. Evaluate events with PolicyEvaluator
- *   6. Write decisions via DecisionStore
- *   7. Execute pending decisions (LABEL, MOVE, CREATE_TASK, CREATE_READING_PACK, ASK_HUMAN, DRAFT_REPLY)
- *   8. Write RunLog via RunLogWriter (US9)
- *
- * Currently implemented stages: 5–7 (evaluation + CREATE_TASK + CREATE_READING_PACK execution).
- * Remaining stages are stubs pending their respective user story phases.
+ * Pipeline (per heartbeat cycle):
+ *   1. Load all items with status: inbox
+ *   2. Run local LLM enrichment for any item missing an ENHANCE action
+ *   3. Evaluate the policy for each item
+ *   4. Append the next action(s) to each item and update its status
  */
 
+import * as fs from 'fs/promises';
 import * as path from 'path';
+import matter from 'gray-matter';
 import type { TaskHandler } from '../types';
 import type { TaskConfig } from '../../../types/heartbeat';
-import type { Policy, PolicyDecision, TriageEvent } from '../../../lib/policy/types';
+import type { PolicyPipelineConfig, Policy } from '../../../lib/policy/types';
 import { evaluate } from '../../../lib/policy/evaluator';
 import { loadPolicy } from '../../../lib/policy/policy-loader';
-import { listEvents, saveEvent } from '../../../lib/triage/triage-event-store';
-import { saveDecision } from '../../../lib/triage/decision-store';
-import { createTask } from '../../../lib/triage/task-writer';
-import { appendEntry as appendReadingPackEntry } from '../../../lib/triage/reading-pack-writer';
-import { createItem as createHumanQueueItem, listByStatus } from '../../../lib/triage/human-queue-store';
-import { processResolved } from '../../../lib/triage/human-queue-processor';
-import { LocalEnrichmentService } from '../../enrichment/local-enrichment-service';
-import { ClaudeEnrichmentService } from '../../enrichment/claude-enrichment-service';
-import type { ResolvedAction } from '../../../lib/policy/types';
-import { randomUUID } from 'crypto';
+import { listItems, updateItem } from '../../../lib/item/item-store';
+import type { Item, Action } from '../../../lib/item/types';
+import type { LocalEnrichmentService } from '../../enrichment/local-enrichment-service';
+import { buildEnhanceAction } from '../../enrichment/local-enrichment-service';
+import { JournalContextRetriever, extractTermsFromItem } from '../../../lib/journal/context-retriever';
 import { logger } from '../../../common/logger';
 
-export interface PolicyPipelineConfig {
-  /** Path to a single policy YAML file — used when policyDir is not set */
-  policyPath?: string;
-  /** Directory containing per-source policy files (e.g. email.yaml, calendar.yaml, default.yaml) */
-  policyDir?: string;
-  /** Maximum events to process per cycle */
-  batchSize?: number;
+interface ActiveTask {
+  id: string;
+  title: string;
+}
+
+/**
+ * Load active (non-done) tasks from {rootDir}/tasks/*.md.
+ * Skips tasks with status: done/completed/cancelled.
+ * Returns [{id: slug, title}] sorted by filename.
+ */
+async function loadActiveTasks(rootDir: string): Promise<ActiveTask[]> {
+  const tasksDir = path.join(rootDir, 'tasks');
+  try {
+    const files = (await fs.readdir(tasksDir)).filter((f) => f.endsWith('.md')).sort();
+    const tasks: ActiveTask[] = [];
+    for (const file of files) {
+      try {
+        const content = await fs.readFile(path.join(tasksDir, file), 'utf-8');
+        const { data } = matter(content);
+        const status = (data['status'] as string | undefined) ?? 'to-do';
+        if (['done', 'completed', 'cancelled'].includes(status)) continue;
+        const title =
+          (data['title'] as string | undefined) ??
+          file.replace('.md', '').replace(/-/g, ' ');
+        tasks.push({ id: file.replace('.md', ''), title });
+      } catch {
+        // Skip unreadable files
+      }
+    }
+    return tasks;
+  } catch {
+    return [];
+  }
 }
 
 export class PolicyPipelineTask implements TaskHandler {
@@ -48,7 +63,7 @@ export class PolicyPipelineTask implements TaskHandler {
     private readonly systemDir: string,
     private readonly policyDir: string,
     private readonly localEnrichment?: LocalEnrichmentService,
-    private readonly claudeEnrichment?: ClaudeEnrichmentService
+    private readonly rootDir?: string
   ) {}
 
   async execute(taskConfig: TaskConfig): Promise<void> {
@@ -58,292 +73,261 @@ export class PolicyPipelineTask implements TaskHandler {
     logger.info({
       operation: 'policy_pipeline_start',
       taskId: taskConfig.id,
-      policyDir: cfg.policyDir,
-      policyPath: cfg.policyPath,
       message: 'PolicyPipelineTask starting',
     });
 
-    // Stage 1: Scan for pending events
-    const events = await listEvents(this.systemDir, ['pending', 'enriched']);
-    const batch = events.slice(0, batchSize);
+    // Stage 1: Load inbox items
+    const inbox = await listItems(this.systemDir, ['inbox']);
+    const batch = inbox.slice(0, batchSize);
 
     if (batch.length === 0) {
       logger.info({
-        operation: 'policy_pipeline_no_events',
-        message: 'No pending events to process',
+        operation: 'policy_pipeline_no_items',
+        message: 'No inbox items to process',
       });
       return;
     }
 
     logger.info({
-      operation: 'policy_pipeline_events_loaded',
+      operation: 'policy_pipeline_items_loaded',
       count: batch.length,
-      message: `Processing ${batch.length} event(s)`,
+      message: `Processing ${batch.length} inbox item(s)`,
     });
 
-    // Stage 2: Run local enrichment on pending events
-    if (this.localEnrichment) {
-      for (const event of batch.filter((e) => e.status === 'pending')) {
+    // Stage 2: Build journal context index + load active tasks (once per cycle, best-effort)
+    let contextRetriever: JournalContextRetriever | undefined;
+    let activeTasks: ActiveTask[] = [];
+    if (this.localEnrichment && this.rootDir) {
+      const journalDir = path.join(this.rootDir, 'areas', 'journal');
+      contextRetriever = new JournalContextRetriever();
+      try {
+        await contextRetriever.buildIndex(journalDir);
+        logger.debug({
+          operation: 'policy_pipeline_context_index_built',
+          message: 'Journal context index built for enrichment cycle',
+        });
+      } catch (err) {
+        logger.warn({
+          operation: 'policy_pipeline_context_index_error',
+          error: (err as Error).message,
+          message: 'Failed to build journal context index — enriching without context',
+        });
+        contextRetriever = undefined;
+      }
+
+      activeTasks = await loadActiveTasks(this.rootDir);
+      logger.debug({
+        operation: 'policy_pipeline_tasks_loaded',
+        count: activeTasks.length,
+        message: `Loaded ${activeTasks.length} active task(s) for task-match enrichment`,
+      });
+    }
+
+    // Stage 3: Enrich items that lack an ENHANCE action
+    for (const item of batch) {
+      const hasEnhance = item.actions.some((a) => a.type === 'ENHANCE');
+      if (!hasEnhance && this.localEnrichment) {
         try {
-          const result = await this.localEnrichment.enrich(event);
-          const enriched = {
-            ...event,
-            status: 'enriched' as const,
-            extracted: { ...event.extracted, ...result.extracted },
-          };
-          // Update the batch in-place so Stage 5 sees enriched fields
-          batch[batch.indexOf(event)] = enriched;
-          await saveEvent(this.systemDir, enriched);
+          // Call 1: intent classification with optional journal context
+          let contextBrief: string | undefined;
+          if (contextRetriever?.isReady) {
+            const terms = extractTermsFromItem(item);
+            const snippets = contextRetriever.retrieve(terms);
+            contextBrief = contextRetriever.formatBrief(snippets);
+          }
+          const result = await this.localEnrichment.enrich(item, contextBrief);
+          const enhanceAction = buildEnhanceAction(result);
+
+          // Call 2: task matching (separate focused call)
+          if (activeTasks.length > 0) {
+            const relatedTasks = await this.localEnrichment.findRelatedTasks(item, activeTasks);
+            if (relatedTasks.length > 0) {
+              enhanceAction.relatedTasks = relatedTasks;
+            }
+          }
+
+          item.actions.push(enhanceAction);
+          // Write immediately so enrichment survives a crash before evaluation
+          await updateItem(this.systemDir, item);
         } catch (err) {
           logger.warn({
-            operation: 'local_enrichment_skip',
-            eventId: event.eventId,
+            operation: 'policy_pipeline_enrich_error',
+            itemId: item.id,
             error: (err as Error).message,
+            message: `Enrichment failed for ${item.id} — continuing without ENHANCE`,
           });
         }
       }
     }
 
-    // Stage 3: Check for approved claude_approval items, run Claude enrichment
-    if (this.claudeEnrichment) {
-      const approvedItems = await listByStatus(this.systemDir, ['approved']);
-      for (const item of approvedItems) {
-        if (item.itemType !== 'claude_approval') continue;
-        const event = batch.find((e) => e.eventId === item.eventRef);
-        if (!event) continue;
-        try {
-          const result = await this.claudeEnrichment.enrich(event, item.id, this.systemDir);
-          const enriched = {
-            ...event,
-            status: 'enriched' as const,
-            extracted: { ...event.extracted, ...result.extracted },
-          };
-          batch[batch.indexOf(event)] = enriched;
-          await saveEvent(this.systemDir, enriched);
-        } catch (err) {
-          logger.warn({
-            operation: 'claude_enrichment_skip',
-            eventId: event.eventId,
-            approvalItemId: item.id,
-            error: (err as Error).message,
-          });
+    // Stage 4: Group by source, evaluate per-source policy
+    const bySource = new Map<string, Item[]>();
+    for (const item of batch) {
+      const group = bySource.get(item.source) ?? [];
+      group.push(item);
+      bySource.set(item.source, group);
+    }
+
+    for (const [source, sourceItems] of bySource) {
+      let policy: Policy;
+      try {
+        policy = await this.loadPolicyForSource(cfg, source);
+      } catch (err) {
+        logger.warn({
+          operation: 'policy_pipeline_policy_load_error',
+          source,
+          error: (err as Error).message,
+          message: `Could not load policy for source '${source}' — items will be queued for TRIAGE`,
+        });
+        // Fall back: queue all items in this source group for human review
+        for (const item of sourceItems) {
+          await this.applyActions(item, [
+            { type: 'TRIAGE', question: `No policy found for source: ${source}` },
+          ]);
         }
+        continue;
+      }
+
+      const results = evaluate(policy, sourceItems);
+
+      for (const result of results) {
+        const item = sourceItems.find((i) => i.id === result.itemId);
+        if (!item) continue;
+
+        logger.debug({
+          operation: 'policy_pipeline_evaluated',
+          itemId: item.id,
+          source: item.source,
+          intent: result.classification.intent,
+          confidence: result.classification.confidence,
+          actions: result.nextActions.map((a) => a.type).join(', '),
+          message: `Evaluated ${item.id}: ${result.classification.intent} (${(result.classification.confidence * 100).toFixed(0)}%)`,
+        });
+
+        await this.applyActions(item, result.nextActions);
       }
     }
-
-    // Stage 4: Process resolved ask_human items (source-specific policy per event)
-    await processResolved(this.systemDir, (source) => this.loadPolicyForSource(cfg, source));
-
-    // Stage 5: Evaluate events per source (re-read batch to pick up enriched state)
-    const freshBatch = await listEvents(this.systemDir, ['pending', 'enriched']);
-    const toEvaluate = freshBatch.filter((e) =>
-      batch.some((b) => b.eventId === e.eventId)
-    );
-
-    // Group by source so each group is evaluated with its own policy
-    const bySource = new Map<string, TriageEvent[]>();
-    for (const event of toEvaluate) {
-      const src = event.source ?? 'unknown';
-      const group = bySource.get(src) ?? [];
-      group.push(event);
-      bySource.set(src, group);
-    }
-
-    const allDecisions: PolicyDecision[] = [];
-    const allEvents: TriageEvent[] = [];
-    for (const [source, sourceEvents] of bySource) {
-      const policy = await this.loadPolicyForSource(cfg, source);
-      const decisions = evaluate(policy, sourceEvents);
-      allDecisions.push(...decisions);
-      allEvents.push(...sourceEvents);
-    }
-
-    // Stages 6–7: Write decisions + execute actions
-    await this.writeAndExecuteDecisions(allEvents, allDecisions);
 
     logger.info({
       operation: 'policy_pipeline_complete',
       taskId: taskConfig.id,
-      eventsProcessed: toEvaluate.length,
-      message: 'PolicyPipelineTask complete',
+      processed: batch.length,
+      message: `PolicyPipelineTask complete: ${batch.length} item(s) processed`,
     });
   }
 
   /**
-   * Load the policy for a given source, using per-source files when policyDir is configured.
-   * Resolution order: {policyDir}/{source}.yaml → {policyDir}/default.yaml → policyPath fallback.
+   * Append next actions to an item and update its status accordingly.
+   */
+  private async applyActions(
+    item: Item,
+    nextActions: Array<{
+      type: string;
+      question?: string;
+      folder?: string;
+      name?: string;
+      flagStatus?: string;
+      calendarResponse?: string;
+      note?: string;
+    }>
+  ): Promise<void> {
+    const now = new Date().toISOString();
+
+    for (const ruleAction of nextActions) {
+      // For TRIAGE actions, try to generate a context-aware question via local LLM
+      let question = ruleAction.question;
+      if (ruleAction.type === 'TRIAGE' && this.localEnrichment) {
+        const generated = await this.localEnrichment.generateTriageQuestion(item);
+        if (generated) {
+          question = generated;
+        }
+      }
+
+      const action: Action = {
+        type: ruleAction.type as Action['type'],
+        at: now,
+        status: 'pending',
+        ...(question ? { question } : {}),
+        ...(ruleAction.folder ? { folder: ruleAction.folder } : {}),
+        ...(ruleAction.name ? { name: ruleAction.name } : {}),
+        ...(ruleAction.flagStatus ? { flagStatus: ruleAction.flagStatus } : {}),
+        ...(ruleAction.calendarResponse
+          ? {
+              calendarResponse: ruleAction.calendarResponse as Action['calendarResponse'],
+            }
+          : {}),
+        ...(ruleAction.note ? { note: ruleAction.note } : {}),
+      };
+      item.actions.push(action);
+    }
+
+    // Derive new status from the appended actions
+    const hasPendingTriage = item.actions.some(
+      (a) => a.type === 'TRIAGE' && a.status === 'pending'
+    );
+    if (hasPendingTriage) {
+      item.status = 'triage';
+    } else {
+      item.status = 'pending';
+    }
+
+    try {
+      await updateItem(this.systemDir, item);
+    } catch (err) {
+      logger.error({
+        operation: 'policy_pipeline_save_error',
+        itemId: item.id,
+        error: (err as Error).message,
+        message: `Failed to save item ${item.id}`,
+      });
+    }
+  }
+
+  /**
+   * Load the policy for a given source.
+   * Resolution: {policyDir}/{source}.yaml → {policyDir}/email.yaml → {policyDir}/default.yaml
    */
   private async loadPolicyForSource(cfg: PolicyPipelineConfig, source: string): Promise<Policy> {
-    if (cfg.policyDir) {
-      const absolutePolicyDir = path.isAbsolute(cfg.policyDir)
+    const policyDir = cfg.policyDir
+      ? path.isAbsolute(cfg.policyDir)
         ? cfg.policyDir
-        : path.resolve(process.cwd(), cfg.policyDir);
+        : path.resolve(process.cwd(), cfg.policyDir)
+      : this.policyDir;
 
-      // Try source-specific file first
-      try {
-        return await loadPolicy(path.join(absolutePolicyDir, `${source}.yaml`));
-      } catch {
-        // Fall through to default.yaml
-      }
+    const candidates = [
+      path.join(policyDir, `${source}.yaml`),
+      path.join(policyDir, 'email.yaml'),
+      path.join(policyDir, 'default.yaml'),
+    ];
 
-      // Try default.yaml
-      try {
-        return await loadPolicy(path.join(absolutePolicyDir, 'default.yaml'));
-      } catch {
-        // Fall through to legacy policyPath
-      }
+    // Also honour legacy single-file fallback
+    if (cfg.policyFile) {
+      candidates.push(
+        path.isAbsolute(cfg.policyFile)
+          ? cfg.policyFile
+          : path.resolve(process.cwd(), cfg.policyFile)
+      );
     }
 
-    // Legacy single-file fallback
-    const legacyPath = cfg.policyPath ?? path.join(this.policyDir, 'policy.yaml');
-    return await loadPolicy(legacyPath);
-  }
-
-  /**
-   * Write each decision to system/decisions/ and execute its actions.
-   * Currently handles: CREATE_TASK.
-   * Other action types are no-ops pending their implementation phases.
-   */
-  private async writeAndExecuteDecisions(
-    events: TriageEvent[],
-    decisions: PolicyDecision[]
-  ): Promise<void> {
-    for (let i = 0; i < decisions.length; i++) {
-      const decision = decisions[i];
-      const event = events[i];
-
+    for (const candidate of candidates) {
       try {
-        // Write the decision artifact
-        await saveDecision(this.systemDir, decision);
-
-        // Execute each action
-        for (const action of decision.actions) {
-          await this.executeAction(event, action);
-        }
-
-        // Update event status to 'actioned' after all actions executed
-        const updatedEvent: TriageEvent = {
-          ...event,
-          status: 'actioned',
-          passes: [
-            ...event.passes,
-            {
-              passNumber: event.passCount + 1,
-              timestamp: decision.timestamp,
-              policyId: decision.policyId,
-              policyVersion: decision.policyVersion,
-              decision,
-            },
-          ],
-          passCount: event.passCount + 1,
-          latestPassTimestamp: decision.timestamp,
-        };
-        await saveEvent(this.systemDir, updatedEvent);
+        return await loadPolicy(candidate);
       } catch (err) {
-        logger.error({
-          operation: 'policy_pipeline_event_error',
-          eventId: event.eventId,
-          error: (err as Error).message,
-          message: `Failed to process event ${event.eventId}`,
-        });
+        const msg = (err as Error).message ?? '';
+        if (msg.startsWith('Policy file not found')) {
+          // Expected — file simply doesn't exist, try next candidate
+        } else {
+          // File exists but failed to parse or validate — always warn
+          logger.warn({
+            operation: 'policy_load_invalid',
+            candidate,
+            error: msg,
+            message: `Policy file invalid, skipping: ${candidate}`,
+          });
+        }
       }
     }
+
+    throw new Error(`No policy found for source '${source}' in ${policyDir}`);
   }
-
-  /**
-   * Execute a single resolved action.
-   * CREATE_TASK: write task artifact.
-   * CREATE_READING_PACK: append entry to daily reading pack.
-   * ASK_HUMAN: write human queue item.
-   * Other types: stub (logged, no-op) pending their implementation phases.
-   */
-  private async executeAction(
-    event: TriageEvent,
-    action: ResolvedAction
-  ): Promise<void> {
-    switch (action.type) {
-      case 'CREATE_TASK':
-        await createTask(event, this.systemDir);
-        break;
-
-      case 'CREATE_READING_PACK':
-        await appendReadingPackEntry(event, this.systemDir);
-        break;
-
-      case 'ASK_HUMAN':
-        await createHumanQueueItem(
-          {
-            id: randomUUID(),
-            itemType: 'ask_human',
-            eventRef: event.eventId,
-            status: 'pending',
-            createdAt: new Date().toISOString(),
-            question: action.question ?? 'Please review this event and provide guidance.',
-          },
-          this.systemDir,
-          buildEventContext(event)
-        );
-        break;
-
-      case 'MOVE':
-      case 'LABEL':
-      case 'CATEGORY':
-      case 'FLAG':
-      case 'DRAFT_REPLY':
-      case 'ENRICH_CONFLUENCE':
-        // Handled by the executor-task via external API calls
-        logger.debug({
-          operation: 'policy_pipeline_action_deferred',
-          actionType: action.type,
-          eventId: event.eventId,
-          message: `Action ${action.type} deferred to executor-task`,
-        });
-        break;
-
-      default:
-        logger.warn({
-          operation: 'policy_pipeline_unknown_action',
-          actionType: (action as ResolvedAction).type,
-          eventId: event.eventId,
-          message: `Unknown action type: ${(action as ResolvedAction).type}`,
-        });
-    }
-  }
-}
-
-/**
- * Format a TriageEvent into a human-readable markdown context block for
- * inclusion in ASK_HUMAN queue items and MCP tool responses.
- */
-function buildEventContext(event: TriageEvent): string {
-  const lines: string[] = [
-    `| Field | Value |`,
-    `|---|---|`,
-    `| **Source** | ${event.source} |`,
-    `| **From** | ${event.author} |`,
-    `| **Subject / Title** | ${event.title} |`,
-    `| **Received** | ${event.receivedAt} |`,
-    `| **Event ID** | ${event.eventId} |`,
-  ];
-
-  // Signals — only flag the ones that are true
-  const activeSignals: string[] = [];
-  if (event.signals.mentionsMeeting) activeSignals.push('📅 mentions meeting');
-  if (event.signals.asksForAction) activeSignals.push('✅ asks for action');
-  if (event.signals.mentionsMoney) activeSignals.push('💰 mentions money');
-  if (event.signals.hasAttachments) activeSignals.push('📎 has attachments');
-  if (event.signals.isBulk) activeSignals.push('📢 bulk mail');
-  if (event.signals.isAutomated) activeSignals.push('🤖 automated');
-  if (event.signals.hasUnsubscribe) activeSignals.push('🚫 has unsubscribe');
-  if (event.signals.prioritySender) activeSignals.push('⭐ priority sender');
-
-  if (activeSignals.length > 0) {
-    lines.push(`| **Signals** | ${activeSignals.join(', ')} |`);
-  }
-
-  if (event.snippet && event.snippet.trim()) {
-    lines.push('', '**Snippet:**', '', `> ${event.snippet.replace(/\n/g, '\n> ')}`);
-  }
-
-  return lines.join('\n');
 }
