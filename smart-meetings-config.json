@@ -1,0 +1,953 @@
+{
+  "version": "1.0",
+  "_comment": "Smart Meeting Scheduler config. History tracks last 3+ occurrences for scheduling weight.",
+  "settings": {
+    "lookAheadDays": 21,
+    "minNoticePeriodHours": 48,
+    "timezone": "Europe/London",
+    "historyRetentionCount": 5,
+    "rebalanceCadence": "weekly",
+    "_rebalanceCadenceNote": "Rebalance pass cadence: 'weekly' (Monday morning) or 'daily'. Controls conflict/imbalance scan over the 21-day window.",
+    "timePortfolio": {
+      "workingHoursStart": "09:00",
+      "workingHoursEnd": "17:00",
+      "workingDays": ["MON", "TUE", "WED", "THU", "FRI"],
+      "imbalanceThresholdPct": 50,
+      "imbalanceWindowWeeks": 2,
+      "focusKeywords": ["Focus", "Deep Work", "Blocked", "No meetings", "Writing"],
+      "_categorisationNote": "Events are recurring (recurrence set or title matches smart meeting), focus (no attendees or title matches focusKeywords; unbooked working time counts as focus), or ad-hoc (everything else with attendees). Balance is calculated from 4 weeks of calendarView history — no persistent state needed.",
+      "_note": "Alert when any single category (focus/recurring/adhoc) exceeds imbalanceThresholdPct for imbalanceWindowWeeks consecutive weeks"
+    }
+  },
+  "meetings": [
+    {
+      "id": "dorin-laz-121",
+      "title": "Dorin:Laz 121",
+      "enabled": true,
+      "attendees": [
+        "dorin.fodor@skyscanner.net"
+      ],
+      "durationMinutes": 30,
+      "cadence": {
+        "frequency": "weekly",
+        "idealDays": [
+          "TUE"
+        ]
+      },
+      "window": {
+        "days": [
+          "FRI",
+          "MON",
+          "TUE",
+          "THU",
+          "WED"
+        ],
+        "start": "09:00",
+        "end": "17:00"
+      },
+      "history": []
+    },
+    {
+      "id": "shailesh-laz-121",
+      "title": "Shailesh:Laz 121",
+      "enabled": true,
+      "attendees": [
+        "Shailesh.Negi@skyscanner.net"
+      ],
+      "durationMinutes": 30,
+      "cadence": {
+        "frequency": "monthly",
+        "idealDays": []
+      },
+      "window": {
+        "days": [
+          "FRI",
+          "MON",
+          "TUE",
+          "THU",
+          "WED"
+        ],
+        "start": "09:00",
+        "end": "17:00"
+      },
+      "history": []
+    },
+    {
+      "id": "katrin-laz",
+      "title": "Katrin:Laz",
+      "enabled": true,
+      "attendees": [
+        "katrin.korovkina@skyscanner.net"
+      ],
+      "durationMinutes": 30,
+      "cadence": {
+        "frequency": "fortnightly",
+        "idealDays": [
+          "WED"
+        ]
+      },
+      "window": {
+        "days": [
+          "FRI",
+          "MON",
+          "TUE",
+          "THU",
+          "WED"
+        ],
+        "start": "09:00",
+        "end": "17:00"
+      },
+      "history": []
+    },
+    {
+      "id": "fernanda-laz-121",
+      "title": "Fernanda:Laz 121",
+      "enabled": true,
+      "attendees": [
+        "Fernanda.Rehlander@skyscanner.net"
+      ],
+      "durationMinutes": 30,
+      "cadence": {
+        "frequency": "monthly",
+        "idealDays": []
+      },
+      "window": {
+        "days": [
+          "FRI",
+          "MON",
+          "TUE",
+          "THU",
+          "WED"
+        ],
+        "start": "09:00",
+        "end": "17:00"
+      },
+      "history": []
+    },
+    {
+      "id": "rohit-laz-121",
+      "title": "Rohit:Laz 121",
+      "enabled": true,
+      "attendees": [
+        "rohit.damodaran@skyscanner.net"
+      ],
+      "durationMinutes": 30,
+      "cadence": {
+        "frequency": "weekly",
+        "idealDays": [
+          "TUE"
+        ]
+      },
+      "window": {
+        "days": [
+          "FRI",
+          "MON",
+          "TUE",
+          "THU",
+          "WED"
+        ],
+        "start": "09:00",
+        "end": "17:00"
+      },
+      "history": []
+    },
+    {
+      "id": "qing-laz",
+      "title": "Qing:Laz",
+      "enabled": true,
+      "attendees": [
+        "qing.lin@skyscanner.net"
+      ],
+      "durationMinutes": 30,
+      "cadence": {
+        "frequency": "monthly",
+        "idealDays": []
+      },
+      "window": {
+        "days": [
+          "FRI",
+          "MON",
+          "TUE",
+          "THU",
+          "WED"
+        ],
+        "start": "09:00",
+        "end": "17:00"
+      },
+      "history": []
+    },
+    {
+      "id": "laz-george-goals",
+      "title": "Laz/George: Goals!",
+      "enabled": true,
+      "attendees": [
+        "Laz.Allen@skyscanner.net"
+      ],
+      "durationMinutes": 30,
+      "cadence": {
+        "frequency": "monthly",
+        "idealDays": []
+      },
+      "window": {
+        "days": [
+          "FRI",
+          "MON",
+          "TUE",
+          "THU",
+          "WED"
+        ],
+        "start": "09:00",
+        "end": "17:00"
+      },
+      "history": []
+    },
+    {
+      "id": "fatma-laz",
+      "title": "Fatma:Laz",
+      "enabled": true,
+      "attendees": [
+        "fatma.krichen@skyscanner.net"
+      ],
+      "durationMinutes": 30,
+      "cadence": {
+        "frequency": "monthly",
+        "idealDays": []
+      },
+      "window": {
+        "days": [
+          "FRI",
+          "MON",
+          "TUE",
+          "THU",
+          "WED"
+        ],
+        "start": "09:00",
+        "end": "17:00"
+      },
+      "history": []
+    },
+    {
+      "id": "vig-laz",
+      "title": "Vig:Laz",
+      "enabled": true,
+      "attendees": [
+        "vignesh.meyyappan@skyscanner.net"
+      ],
+      "durationMinutes": 30,
+      "cadence": {
+        "frequency": "fortnightly",
+        "idealDays": [
+          "THU"
+        ]
+      },
+      "window": {
+        "days": [
+          "FRI",
+          "MON",
+          "TUE",
+          "THU",
+          "WED"
+        ],
+        "start": "09:00",
+        "end": "17:00"
+      },
+      "history": []
+    },
+    {
+      "id": "priyal-laz-121",
+      "title": "Priyal:Laz 121",
+      "enabled": true,
+      "attendees": [
+        "Priyal.Narang@skyscanner.net"
+      ],
+      "durationMinutes": 30,
+      "cadence": {
+        "frequency": "fortnightly",
+        "idealDays": [
+          "TUE"
+        ]
+      },
+      "window": {
+        "days": [
+          "FRI",
+          "MON",
+          "TUE",
+          "THU",
+          "WED"
+        ],
+        "start": "09:00",
+        "end": "17:00"
+      },
+      "history": []
+    },
+    {
+      "id": "john-s-laz",
+      "title": "John S:Laz",
+      "enabled": true,
+      "attendees": [
+        "John.Sykes@skyscanner.net"
+      ],
+      "durationMinutes": 30,
+      "cadence": {
+        "frequency": "fortnightly",
+        "idealDays": [
+          "FRI"
+        ]
+      },
+      "window": {
+        "days": [
+          "FRI",
+          "MON",
+          "TUE",
+          "THU",
+          "WED"
+        ],
+        "start": "09:00",
+        "end": "17:00"
+      },
+      "history": []
+    },
+    {
+      "id": "jess-laz",
+      "title": "Jess:Laz",
+      "enabled": true,
+      "attendees": [
+        "jessica.barbosa@skyscanner.net"
+      ],
+      "durationMinutes": 30,
+      "cadence": {
+        "frequency": "fortnightly",
+        "idealDays": [
+          "WED"
+        ]
+      },
+      "window": {
+        "days": [
+          "FRI",
+          "MON",
+          "TUE",
+          "THU",
+          "WED"
+        ],
+        "start": "09:00",
+        "end": "17:00"
+      },
+      "history": []
+    },
+    {
+      "id": "data-catalog-weekly-team-checkin",
+      "title": "Data Catalog Weekly Team Checkin",
+      "enabled": true,
+      "attendees": [
+        "evgeny.belyakov@skyscanner.net",
+        "Steven.vanStiphout@skyscanner.net",
+        "Gary.Fernie@skyscanner.net",
+        "John.Sykes@skyscanner.net",
+        "jessica.barbosa@skyscanner.net"
+      ],
+      "durationMinutes": 30,
+      "cadence": {
+        "frequency": "weekly",
+        "idealDays": [
+          "FRI"
+        ]
+      },
+      "window": {
+        "days": [
+          "FRI"
+        ],
+        "start": "11:30",
+        "end": "14:00"
+      },
+      "history": []
+    },
+    {
+      "id": "nathan-laz",
+      "title": "Nathan:Laz",
+      "enabled": true,
+      "attendees": [
+        "Nathan.Comiskey@skyscanner.net"
+      ],
+      "durationMinutes": 30,
+      "cadence": {
+        "frequency": "fortnightly",
+        "idealDays": [
+          "TUE"
+        ]
+      },
+      "window": {
+        "days": [
+          "FRI",
+          "MON",
+          "TUE",
+          "THU",
+          "WED"
+        ],
+        "start": "09:00",
+        "end": "17:00"
+      },
+      "history": []
+    },
+    {
+      "id": "sam-laz",
+      "title": "Sam:Laz",
+      "enabled": true,
+      "attendees": [
+        "Samuel.Laurenson@skyscanner.net"
+      ],
+      "durationMinutes": 30,
+      "cadence": {
+        "frequency": "monthly",
+        "idealDays": []
+      },
+      "window": {
+        "days": [
+          "FRI",
+          "MON",
+          "TUE",
+          "THU",
+          "WED"
+        ],
+        "start": "09:00",
+        "end": "17:00"
+      },
+      "history": []
+    },
+    {
+      "id": "steven-laz",
+      "title": "Steven:Laz",
+      "enabled": true,
+      "attendees": [
+        "Steven.vanStiphout@skyscanner.net"
+      ],
+      "durationMinutes": 30,
+      "cadence": {
+        "frequency": "weekly",
+        "idealDays": [
+          "TUE"
+        ]
+      },
+      "window": {
+        "days": [
+          "FRI",
+          "MON",
+          "TUE",
+          "THU",
+          "WED"
+        ],
+        "start": "09:00",
+        "end": "17:00"
+      },
+      "history": []
+    },
+    {
+      "id": "liza-laz-121",
+      "title": "Liza:Laz 121",
+      "enabled": true,
+      "attendees": [
+        "liza.olariu@skyscanner.net"
+      ],
+      "durationMinutes": 30,
+      "cadence": {
+        "frequency": "monthly",
+        "idealDays": []
+      },
+      "window": {
+        "days": [
+          "FRI",
+          "MON",
+          "TUE",
+          "THU",
+          "WED"
+        ],
+        "start": "09:00",
+        "end": "17:00"
+      },
+      "history": []
+    },
+    {
+      "id": "alex-laz",
+      "title": "Alex:Laz",
+      "enabled": true,
+      "attendees": [
+        "alexey.holiev@skyscanner.net"
+      ],
+      "durationMinutes": 30,
+      "cadence": {
+        "frequency": "fortnightly",
+        "idealDays": [
+          "TUE"
+        ]
+      },
+      "window": {
+        "days": [
+          "FRI",
+          "MON",
+          "TUE",
+          "THU",
+          "WED"
+        ],
+        "start": "09:00",
+        "end": "17:00"
+      },
+      "history": []
+    },
+    {
+      "id": "stephen-laz",
+      "title": "Stephen:Laz",
+      "enabled": true,
+      "attendees": [
+        "stephen.white@skyscanner.net"
+      ],
+      "durationMinutes": 30,
+      "cadence": {
+        "frequency": "fortnightly",
+        "idealDays": [
+          "THU"
+        ]
+      },
+      "window": {
+        "days": [
+          "FRI",
+          "MON",
+          "TUE",
+          "THU",
+          "WED"
+        ],
+        "start": "09:00",
+        "end": "17:00"
+      },
+      "history": []
+    },
+    {
+      "id": "david-laz",
+      "title": "David:Laz",
+      "enabled": true,
+      "attendees": [
+        "david.thomas@skyscanner.net"
+      ],
+      "durationMinutes": 30,
+      "cadence": {
+        "frequency": "fortnightly",
+        "idealDays": [
+          "WED"
+        ]
+      },
+      "window": {
+        "days": [
+          "FRI",
+          "MON",
+          "TUE",
+          "THU",
+          "WED"
+        ],
+        "start": "09:00",
+        "end": "17:00"
+      },
+      "history": []
+    },
+    {
+      "id": "aiman-laz-121",
+      "title": "Aiman:Laz 121",
+      "enabled": true,
+      "attendees": [
+        "aiman.anees@skyscanner.net"
+      ],
+      "durationMinutes": 30,
+      "cadence": {
+        "frequency": "weekly",
+        "idealDays": [
+          "WED"
+        ]
+      },
+      "window": {
+        "days": [
+          "FRI",
+          "MON",
+          "TUE",
+          "THU",
+          "WED"
+        ],
+        "start": "09:00",
+        "end": "11:00"
+      },
+      "history": []
+    },
+    {
+      "id": "evgeny-laz-coaching-pdp",
+      "title": "Evgeny:Laz Coaching/PDP",
+      "enabled": true,
+      "attendees": [
+        "evgeny.belyakov@skyscanner.net"
+      ],
+      "durationMinutes": 60,
+      "cadence": {
+        "frequency": "monthly",
+        "idealDays": []
+      },
+      "window": {
+        "days": [
+          "FRI",
+          "MON",
+          "TUE",
+          "THU",
+          "WED"
+        ],
+        "start": "09:00",
+        "end": "17:00"
+      },
+      "history": []
+    },
+    {
+      "id": "tim-laz",
+      "title": "Tim:Laz",
+      "enabled": true,
+      "attendees": [
+        "Tim.Leslie@skyscanner.net"
+      ],
+      "durationMinutes": 30,
+      "cadence": {
+        "frequency": "weekly",
+        "idealDays": [
+          "MON"
+        ]
+      },
+      "window": {
+        "days": [
+          "FRI",
+          "MON",
+          "TUE",
+          "THU",
+          "WED"
+        ],
+        "start": "09:00",
+        "end": "17:00"
+      },
+      "history": []
+    },
+    {
+      "id": "athmika-laz-121",
+      "title": "Athmika:Laz 121",
+      "enabled": true,
+      "attendees": [
+        "athmika.hebbar@skyscanner.net"
+      ],
+      "durationMinutes": 30,
+      "cadence": {
+        "frequency": "fortnightly",
+        "idealDays": [
+          "TUE"
+        ]
+      },
+      "window": {
+        "days": [
+          "FRI",
+          "MON",
+          "TUE",
+          "THU",
+          "WED"
+        ],
+        "start": "09:00",
+        "end": "17:00"
+      },
+      "history": []
+    },
+    {
+      "id": "tim-laz-coaching-pdp",
+      "title": "Tim:Laz - Coaching/PDP",
+      "enabled": true,
+      "attendees": [
+        "Tim.Leslie@skyscanner.net"
+      ],
+      "durationMinutes": 60,
+      "cadence": {
+        "frequency": "monthly",
+        "idealDays": []
+      },
+      "window": {
+        "days": [
+          "FRI",
+          "MON",
+          "TUE",
+          "THU",
+          "WED"
+        ],
+        "start": "09:00",
+        "end": "17:00"
+      },
+      "history": []
+    },
+    {
+      "id": "manos-laz-coaching",
+      "title": "Manos:Laz - Coaching",
+      "enabled": true,
+      "attendees": [
+        "manos.korakakis@skyscanner.net"
+      ],
+      "durationMinutes": 30,
+      "cadence": {
+        "frequency": "monthly",
+        "idealDays": []
+      },
+      "window": {
+        "days": [
+          "FRI",
+          "MON",
+          "TUE",
+          "THU",
+          "WED"
+        ],
+        "start": "09:00",
+        "end": "17:00"
+      },
+      "history": []
+    },
+    {
+      "id": "gary-laz",
+      "title": "Gary:Laz",
+      "enabled": true,
+      "attendees": [
+        "gary.fernie@skyscanner.net"
+      ],
+      "durationMinutes": 30,
+      "cadence": {
+        "frequency": "fortnightly",
+        "idealDays": [
+          "THU"
+        ]
+      },
+      "window": {
+        "days": [
+          "FRI",
+          "MON",
+          "TUE",
+          "THU",
+          "WED"
+        ],
+        "start": "09:00",
+        "end": "17:00"
+      },
+      "history": []
+    },
+    {
+      "id": "evgeny-laz",
+      "title": "Evgeny:Laz",
+      "enabled": true,
+      "attendees": [
+        "evgeny.belyakov@skyscanner.net"
+      ],
+      "durationMinutes": 30,
+      "cadence": {
+        "frequency": "weekly",
+        "idealDays": [
+          "MON"
+        ]
+      },
+      "window": {
+        "days": [
+          "FRI",
+          "MON",
+          "TUE",
+          "THU",
+          "WED"
+        ],
+        "start": "09:00",
+        "end": "17:00"
+      },
+      "history": []
+    },
+    {
+      "id": "tracey-laz",
+      "title": "Tracey:Laz",
+      "enabled": true,
+      "attendees": [
+        "tracey.gaughan@skyscanner.net"
+      ],
+      "durationMinutes": 30,
+      "cadence": {
+        "frequency": "fortnightly",
+        "idealDays": [
+          "WED"
+        ]
+      },
+      "window": {
+        "days": [
+          "FRI",
+          "MON",
+          "TUE",
+          "THU",
+          "WED"
+        ],
+        "start": "11:00",
+        "end": "17:00"
+      },
+      "history": []
+    },
+    {
+      "id": "sonika-laz",
+      "title": "Sonika:Laz",
+      "enabled": true,
+      "attendees": [
+        "sonika.garg@skyscanner.net"
+      ],
+      "durationMinutes": 30,
+      "cadence": {
+        "frequency": "fortnightly",
+        "idealDays": [
+          "THU"
+        ]
+      },
+      "window": {
+        "days": [
+          "FRI",
+          "MON",
+          "TUE",
+          "THU",
+          "WED"
+        ],
+        "start": "09:00",
+        "end": "17:00"
+      },
+      "history": []
+    },
+    {
+      "id": "ml-ops-sync",
+      "title": "ML Ops Sync",
+      "enabled": true,
+      "attendees": [
+        "Nathan.Comiskey@skyscanner.net",
+        "Steven.vanStiphout@skyscanner.net",
+        "katrin.korovkina@skyscanner.net",
+        "andreea.pascu@skyscanner.net"
+      ],
+      "durationMinutes": 30,
+      "cadence": {
+        "frequency": "fortnightly",
+        "idealDays": [
+          "WED"
+        ]
+      },
+      "window": {
+        "days": [
+          "FRI",
+          "MON",
+          "TUE",
+          "THU",
+          "WED"
+        ],
+        "start": "09:00",
+        "end": "17:00"
+      },
+      "history": []
+    },
+    {
+      "id": "michael-r-laz",
+      "title": "Michael R:Laz",
+      "enabled": true,
+      "attendees": [
+        "michael.roddy@skyscanner.net"
+      ],
+      "durationMinutes": 30,
+      "cadence": {
+        "frequency": "fortnightly",
+        "idealDays": [
+          "WED"
+        ]
+      },
+      "window": {
+        "days": [
+          "FRI",
+          "MON",
+          "TUE",
+          "THU",
+          "WED"
+        ],
+        "start": "09:00",
+        "end": "17:00"
+      },
+      "history": []
+    },
+    {
+      "id": "george-laz",
+      "title": "George: Laz",
+      "enabled": true,
+      "attendees": [
+        "George.Livingston@skyscanner.net"
+      ],
+      "durationMinutes": 30,
+      "cadence": {
+        "frequency": "weekly",
+        "idealDays": [
+          "MON"
+        ]
+      },
+      "window": {
+        "days": [
+          "FRI",
+          "MON",
+          "TUE",
+          "THU",
+          "WED"
+        ],
+        "start": "09:00",
+        "end": "17:00"
+      },
+      "history": []
+    },
+    {
+      "id": "rodrigo-laz",
+      "title": "Rodrigo:Laz",
+      "enabled": true,
+      "attendees": [
+        "rodrigo.elias@skyscanner.net"
+      ],
+      "durationMinutes": 30,
+      "cadence": {
+        "frequency": "weekly",
+        "idealDays": [
+          "MON"
+        ]
+      },
+      "window": {
+        "days": [
+          "FRI",
+          "MON",
+          "TUE",
+          "THU",
+          "WED"
+        ],
+        "start": "09:00",
+        "end": "17:00"
+      },
+      "history": []
+    },
+    {
+      "id": "data-platfrom-strategy-weekly",
+      "title": "Data Platfrom Strategy Weekly",
+      "enabled": true,
+      "attendees": [
+        "George.Livingston@skyscanner.net",
+        "Steven.vanStiphout@skyscanner.net"
+      ],
+      "durationMinutes": 30,
+      "cadence": {
+        "frequency": "weekly",
+        "idealDays": [
+          "THU"
+        ]
+      },
+      "window": {
+        "days": [
+          "FRI",
+          "MON",
+          "TUE",
+          "THU",
+          "WED"
+        ],
+        "start": "09:00",
+        "end": "17:00"
+      },
+      "history": []
+    }
+  ]
+}
