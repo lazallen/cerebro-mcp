@@ -61,6 +61,12 @@ async function main(): Promise<void> {
       serviceRegistry.get('microsoft') as unknown as import('./auth-server/triage-router').CalendarResponder | undefined
     );
 
+    // Register Smart Meeting Scheduler dashboard at /smart-meetings
+    oauthServer.registerSmartMeetingRouter(
+      process.env['SMART_MEETINGS_CONFIG_FILE'] ?? './smart-meetings-config.json',
+      portfolioRef
+    );
+
     // Register services with OAuth server for authentication
     for (const [serviceName, service] of serviceRegistry.services.entries()) {
       // Get token storage - we need to cast to access it
