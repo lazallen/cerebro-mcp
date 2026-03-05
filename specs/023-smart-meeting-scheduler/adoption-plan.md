@@ -2,7 +2,7 @@
 
 **Purpose**: Ops guide for validating, piloting, and cutting over from Reclaim.ai to cerebro-mcp smart scheduling for 34 recurring meetings.
 
-**Timeline summary**: ~5 weeks total (1 day validation + 2 weeks pilot + 1 week cutover + 2 weeks monitoring)
+**Timeline summary**: ~4 weeks total (1 day validation + 1 week pilot on key 1:1s + 1 day cutover + 2 weeks monitoring)
 
 ---
 
@@ -44,57 +44,50 @@ All items below must pass before `enabled: true` is set on any task.
 
 ---
 
-## Phase 1 — Pilot (2 Weeks)
+## Phase 1 — Pilot (1 Week)
 
-**Run cerebro alongside Reclaim. Reclaim remains active as safety net.**
+**Run cerebro alongside Reclaim for your key 1:1s. Reclaim remains active as safety net.**
 
 ### Pilot Meeting Selection
 
-Pick 3 simple weekly 1:1s. Criteria: weekly cadence (easiest to verify), single external attendee (minimal blast radius if something goes wrong), meetings that Reclaim currently manages without issues (baseline to compare against).
+Pick 3–5 of your most important weekly 1:1s — the relationships where you'd notice immediately if something went wrong. These should be meetings you own (Laz is organiser) with a single attendee and a weekly cadence. Suggested: George, Tim, Rodrigo, and 1–2 others from the top of your dashboard.
 
-Suggested selection process: on dashboard, filter for `cadence: weekly`, pick the 3 with the fewest attendees and no complex window constraints.
+Rationale: these are the highest-stakes meetings, so if they work correctly you can be confident the system is solid. If there's an issue it surfaces quickly because they recur weekly.
 
 ### Enabling Pilot Meetings
 
-- [ ] In `smart-meetings-config.json`, confirm the 3 pilot meetings have correct `attendees`, `window`, and `cadence`
-- [ ] In `heartbeat-config.json`, set `enabled: true` on `smart-meeting-forward` only (leave `smart-meeting-rebalance` disabled for week 1)
-- [ ] Server restarts and picks up the config change (no server restart needed for `enabled` flag — heartbeat reads config each run)
-- [ ] Verify first forward-scheduling pass runs at 07:00 on next weekday; check logs at `~/Library/Logs/cerebro-mcp.log`
+- [ ] In `smart-meetings-config.json`, confirm pilot meetings have correct `attendees`, `window`, and `cadence`
+- [ ] In `heartbeat-config.json`, set `enabled: true` on **both** `smart-meeting-forward` and `smart-meeting-rebalance` — running the full system from day one avoids a separate "enable rebalance" step mid-week
+- [ ] Verify the first forward-scheduling pass runs at 07:00 on the next weekday; check logs at `~/Library/Logs/cerebro-mcp.log`
 
-### What to Watch For (Week 1)
+### What to Watch For (Days 1–5)
 
-**Duplicates**: After cerebro runs, check Graph calendarView for each pilot meeting. If Reclaim and cerebro both scheduled the same slot, a duplicate will appear. Duplicates are the highest-risk issue.
+**Duplicates**: After cerebro runs, check calendarView for each pilot meeting. If Reclaim and cerebro both scheduled the same slot, a duplicate will appear. Duplicates are the highest-risk issue.
 
 - [ ] Each pilot meeting has at most one scheduled instance per occurrence slot in the 3-week window
-- [ ] Attendee emails in scheduled events match `smart-meetings-config.json` exactly (no typos, no wrong domain)
-- [ ] Scheduled times fall within the configured `window` (correct days, correct time range)
-- [ ] Meetings are scheduled ~21 days out (SC-002: 3-week horizon)
+- [ ] Attendee emails in created events match `smart-meetings-config.json` exactly (no typos, no wrong domain)
+- [ ] Events are scheduled ~21 days out within the configured `window` (SC-002)
+- [ ] After the Monday rebalance pass: manually create a test conflict on one pilot meeting, verify it moves; verify a meeting within 48h is NOT moved (SC-003)
+- [ ] Check history entries by end of week: past `scheduled` entries should flip to `occurred` or `skipped` (SC-006 / T006 retroactive update)
 
 **Comparison with Reclaim**:
 
-For each pilot meeting, run the `reclaim-api-smart-meetings` skill to fetch Reclaim's scheduled instances. Compare:
+For each pilot meeting, run the `reclaim-api-smart-meetings` skill to fetch Reclaim's view. Compare:
 
 | Check | Expected |
 |---|---|
-| Same occurrence dates | Cerebro and Reclaim agree on the next 1–3 dates |
-| No duplicate calendar events | Only one event per date slot on Graph calendarView |
-| Correct organiser | Event created by the service account, not a stale Reclaim event |
-
-### Week 2: Enable Rebalance
-
-- [ ] Enable `smart-meeting-rebalance` in `heartbeat-config.json`
-- [ ] Manually create a test conflict on one pilot meeting (move it 1h earlier) and verify rebalance moves it — confirm the new slot is still within window
-- [ ] Verify a meeting within 48h is NOT moved (SC-003: 48h protection)
-- [ ] Check history entries: past `scheduled` entries should flip to `occurred` or `skipped` after the retroactive update runs (SC-006 / T006 history logic)
+| No duplicate calendar events | Only one event per slot on calendarView |
+| Correct organiser | Created by Laz's account, not stale Reclaim event |
+| Time within window | Cerebro slot falls within configured `window` days and hours |
 
 ### Pilot Pass/Fail Criteria
 
-**Pass** (proceed to full rollout):
-- Zero duplicate events across all 3 pilot meetings over 2 weeks
+**Pass** (proceed to full rollout after 1 week):
+- Zero duplicate events across all pilot meetings
 - All scheduled times within configured windows
-- Retroactive history correctly shows `occurred` for meetings that happened
+- Retroactive history shows `occurred` for meetings that happened
 - Rebalance respects 48h protection (SC-003)
-- No Graph API errors in logs that weren't present before
+- No unexpected Graph API errors in logs
 
 **Fail** (investigate before proceeding):
 - Any duplicate calendar event created
@@ -187,11 +180,11 @@ If cerebro created duplicates during a bad run, delete the cerebro-created event
 |---|---|
 | D0 | Implementation complete (T001–T027 done) |
 | D1 | Phase 0 validation complete — all checklists green |
-| D2–D15 | Phase 1 pilot (3 meetings, 2 weeks) |
-| D16 | Pilot pass/fail decision |
-| D17 (Monday) | Phase 2: enable all 34, disable Reclaim one by one |
-| D17–D31 | Phase 3: monitoring window, Reclaim account kept active |
-| D47 | Reclaim account safe to cancel (30-day safety window elapsed) |
+| D2–D8 | Phase 1 pilot (key 1:1s, 1 week) |
+| D9 | Pilot pass/fail decision |
+| D10 (Monday) | Phase 2: enable all 34, disable Reclaim in bulk |
+| D10–D24 | Phase 3: monitoring window, Reclaim account kept active |
+| D40 | Reclaim account safe to cancel (30-day safety window elapsed) |
 
 ---
 
