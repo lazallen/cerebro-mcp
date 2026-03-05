@@ -24,6 +24,10 @@ coverage/
 heartbeat-config.json
 smart-meetings-config.json
 
+# Personal config and workflow context (see personal/README.md)
+personal/*
+!personal/README.md
+
 # Logs
 logs/
 *.log

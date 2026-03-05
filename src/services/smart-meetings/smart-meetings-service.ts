@@ -159,6 +159,7 @@ export class SmartMeetingsService implements BaseService {
         nextScheduled: null,
         cadenceDebt,
         attendees: meeting.attendees,
+        pendingReschedule: meeting.pendingReschedule,
       };
     };
 

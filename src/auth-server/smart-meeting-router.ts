@@ -8,7 +8,7 @@
 
 import * as http from 'http';
 import { logger } from '../common/logger';
-import { loadSmartMeetingsConfig } from '../services/smart-meetings/config-io';
+import { loadSmartMeetingsConfig, saveSmartMeetingsConfig } from '../services/smart-meetings/config-io';
 import { calculateCadenceDebt } from '../services/smart-meetings/cadence-debt';
 import type { PortfolioRef } from '../services/smart-meetings/portfolio-ref';
 import type {
@@ -54,6 +54,10 @@ export class SmartMeetingRouter {
 
     if (method === 'GET' && pathname === '/smart-meetings/api/status') {
       return this.handleStatus(res);
+    }
+
+    if (method === 'POST' && pathname === '/smart-meetings/api/cancel-reschedule') {
+      return this.handleCancelReschedule(req, res);
     }
 
     this.sendJson(res, 404, { ok: false, error: 'Not found' });
@@ -108,6 +112,50 @@ export class SmartMeetingRouter {
     }
   }
 
+  // ─── API: /smart-meetings/api/cancel-reschedule ───────────────────────────────
+
+  private async handleCancelReschedule(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    try {
+      const body = await new Promise<string>((resolve, reject) => {
+        let data = '';
+        req.on('data', (chunk) => { data += chunk; });
+        req.on('end', () => resolve(data));
+        req.on('error', reject);
+      });
+
+      const { meetingId } = JSON.parse(body) as { meetingId: string };
+      if (!meetingId) {
+        this.sendJson(res, 400, { ok: false, error: 'meetingId is required' });
+        return;
+      }
+
+      const config = await loadSmartMeetingsConfig(this.configPath);
+      const meeting = config.meetings.find((m) => m.id === meetingId);
+      if (!meeting) {
+        this.sendJson(res, 404, { ok: false, error: `Meeting '${meetingId}' not found` });
+        return;
+      }
+
+      delete meeting.pendingReschedule;
+      await saveSmartMeetingsConfig(this.configPath, config);
+
+      logger.info({
+        operation: 'smart_meeting_cancel_reschedule',
+        meetingId,
+        message: `pendingReschedule cleared for meeting ${meetingId}`,
+      });
+
+      this.sendJson(res, 200, { ok: true });
+    } catch (err) {
+      logger.error({
+        operation: 'smart_meeting_cancel_reschedule_error',
+        error: (err as Error).message,
+        message: 'Failed to cancel reschedule',
+      });
+      this.sendJson(res, 500, { ok: false, error: (err as Error).message });
+    }
+  }
+
   // ─── Helpers ─────────────────────────────────────────────────────────────────
 
   private sendJson(res: http.ServerResponse, status: number, data: unknown): void {
@@ -140,6 +188,7 @@ function buildMeetingStatus(meeting: MeetingDefinition, now: Date): MeetingStatu
     nextScheduled: null, // Requires live calendar query — not available in the dashboard
     cadenceDebt,
     attendees: meeting.attendees,
+    pendingReschedule: meeting.pendingReschedule,
   };
 }
 
@@ -354,6 +403,33 @@ function buildDashboardHtml(): string {
     .loading-row td { text-align: center; color: #8b949e; padding: 32px; }
     .error-row td { text-align: center; color: #f85149; padding: 32px; }
 
+    /* ── Declined badge ── */
+    .declined-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: #451a03;
+      border: 1px solid #d97706;
+      color: #fbbf24;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 7px;
+      border-radius: 4px;
+    }
+    .declined-cancel-btn {
+      display: inline-block;
+      margin-top: 4px;
+      font-size: 11px;
+      color: #8b949e;
+      background: none;
+      border: 1px solid #30363d;
+      border-radius: 4px;
+      padding: 2px 6px;
+      cursor: pointer;
+    }
+    .declined-cancel-btn:hover { border-color: #8b949e; color: #e6edf3; }
+    .declined-proposed { font-size: 11px; color: #8b949e; margin-top: 2px; }
+
     @media (max-width: 768px) {
       #page-content { padding: 16px; }
       table { font-size: 12px; }
@@ -526,6 +602,48 @@ function buildDashboardHtml(): string {
       container.innerHTML = html;
     }
 
+    // ── Declined badge ─────────────────────────────────────────────────────────
+    function declinedBadgeHtml(m) {
+      if (!m.pendingReschedule) return null;
+      const pr = m.pendingReschedule;
+      const detectedAt = new Date(pr.detectedAt);
+      const ageHours = Math.max(0, Math.round((Date.now() - detectedAt.getTime()) / (60 * 60 * 1000)));
+      const hoursLeft = Math.max(0, 24 - ageHours);
+      const rescheduleLabel = hoursLeft > 0 ? \`reschedule in \${hoursLeft}h\` : 'rescheduling soon';
+
+      let proposed = '';
+      if (pr.proposedTime) {
+        const d = new Date(pr.proposedTime.start);
+        const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+        const timeStr = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+        proposed = \`<div class="declined-proposed">Proposed: \${days[d.getDay()]} \${timeStr}</div>\`;
+      }
+
+      return \`<div>
+        <span class="declined-badge">⚠ Declined — \${rescheduleLabel}</span>
+        \${proposed}
+        <div><button class="declined-cancel-btn" onclick="cancelReschedule('\${escapeHtml(m.meetingId)}', this)">✕ Cancel reschedule</button></div>
+      </div>\`;
+    }
+
+    async function cancelReschedule(meetingId, btn) {
+      btn.disabled = true;
+      btn.textContent = 'Cancelling…';
+      try {
+        const resp = await fetch('/smart-meetings/api/cancel-reschedule', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ meetingId }),
+        });
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        loadStatus();
+      } catch (err) {
+        btn.disabled = false;
+        btn.textContent = '✕ Cancel reschedule';
+        alert('Failed to cancel: ' + err.message);
+      }
+    }
+
     // ── Render meetings table ──────────────────────────────────────────────────
     function renderMeetings(meetings) {
       const tbody = document.getElementById('meetings-body');
@@ -542,12 +660,14 @@ function buildDashboardHtml(): string {
         const nextSched = relativeDate(m.nextScheduled);
         const cadence = m.cadence ? cadenceLabel(m.cadence.frequency) : '—';
         const debtCls = debt.cls ? \` \${debt.cls}\` : '';
+        const badge = declinedBadgeHtml(m);
+        const debtCell = badge ? badge : \`<span class="debt-cell\${debtCls}">\${debt.text}</span>\`;
 
         return \`<tr class="\${cls}">
           <td class="title-cell">\${escapeHtml(m.title)}</td>
           <td class="attendee-cell" title="\${escapeHtml(attendees)}">\${escapeHtml(attendees)}</td>
           <td>\${cadence}</td>
-          <td class="debt-cell\${debtCls}">\${debt.text}</td>
+          <td>\${debtCell}</td>
           <td class="date-cell">\${lastOcc}</td>
           <td class="date-cell">\${nextSched}</td>
         </tr>\`;

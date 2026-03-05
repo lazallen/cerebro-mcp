@@ -40,6 +40,36 @@ export interface MeetingCadence {
 }
 
 /**
+ * Pending reschedule state — set when all attendees have declined an event.
+ * The scheduler deletes the event immediately and stores this until the
+ * 24h cooling-off period expires, then creates a new event.
+ */
+export interface PendingReschedule {
+  /** Graph event ID of the deleted event */
+  eventId: string;
+
+  /** ISO 8601 — when all-declined was first detected */
+  detectedAt: string;
+
+  /** Email of the attendee who declined */
+  attendeeEmail: string;
+
+  /** YYYY-MM-DD of the deleted event */
+  originalDate: string;
+
+  /** HH:MM of the deleted event */
+  originalTime: string;
+
+  /** Attendee's proposed alternative time, if present */
+  proposedTime?: {
+    /** ISO 8601 */
+    start: string;
+    /** ISO 8601 */
+    end: string;
+  };
+}
+
+/**
  * A managed meeting definition — the core unit of configuration.
  * Stored in smart-meetings-config.json under the `meetings` array.
  *
@@ -74,6 +104,12 @@ export interface MeetingDefinition {
 
   /** Whether the scheduler should actively manage this meeting */
   enabled: boolean;
+
+  /**
+   * Set when all attendees have declined the meeting.
+   * Cleared when the meeting is rescheduled or the user cancels the reschedule.
+   */
+  pendingReschedule?: PendingReschedule;
 }
 
 /**
@@ -331,6 +367,12 @@ export interface MeetingStatus {
 
   /** Attendee email addresses (from MeetingDefinition.attendees) */
   attendees: string[];
+
+  /**
+   * Pending reschedule state, if all attendees declined the most recent event.
+   * Present only when the scheduler is waiting to create a replacement event.
+   */
+  pendingReschedule?: PendingReschedule;
 }
 
 /**

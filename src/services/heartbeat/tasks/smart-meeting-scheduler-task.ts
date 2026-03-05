@@ -17,6 +17,7 @@ import type {
   MeetingDefinition,
   MeetingHistory,
   DayOfWeek,
+  PendingReschedule,
 } from '../../../types/smart-meetings';
 
 const DAY_NAMES_SHORT: string[] = [
@@ -92,6 +93,12 @@ export class SmartMeetingSchedulerTask implements TaskHandler {
 
     // Update history statuses for past scheduled entries
     config.meetings = await this.updateHistoryStatuses(config.meetings, this.microsoftService);
+
+    // Check for declined meetings: delete immediately, set pendingReschedule, or action overdue reschedules
+    await this.checkDeclinedMeetings(config.meetings, cfg.configPath, now);
+    // Reload config after potential mutations from checkDeclinedMeetings
+    const refreshedConfig = await loadSmartMeetingsConfig(cfg.configPath);
+    config.meetings = refreshedConfig.meetings;
 
     // Get enabled meetings sorted by cadence debt descending (most overdue first)
     const enabledMeetings = sortByDebtDesc(
@@ -540,6 +547,285 @@ export class SmartMeetingSchedulerTask implements TaskHandler {
       rescheduledCount: rescheduledMeetingIds.size,
       message: `Rebalance pass complete — ${rescheduledMeetingIds.size} meeting(s) rescheduled`,
     });
+  }
+
+  /**
+   * Check for declined meetings:
+   *   Phase A — if pendingReschedule has been set for >24h, create a replacement event.
+   *   Phase B — if no pendingReschedule, find the matching event and check if ALL
+   *             attendees have declined; if so, delete immediately and record the state.
+   */
+  private async checkDeclinedMeetings(
+    meetings: MeetingDefinition[],
+    configPath: string,
+    now: Date
+  ): Promise<void> {
+    const enabledMeetings = meetings.filter(m => m.enabled);
+
+    for (const meeting of enabledMeetings) {
+      try {
+        // ── Phase A: Overdue pending reschedule ────────────────────────────────
+        if (meeting.pendingReschedule) {
+          const detectedAt = new Date(meeting.pendingReschedule.detectedAt);
+          const ageHours = (now.getTime() - detectedAt.getTime()) / (60 * 60 * 1000);
+
+          if (ageHours < 24) {
+            continue; // Still within cooling-off period
+          }
+
+          logger.info({
+            operation: 'smart_meeting_reschedule_overdue',
+            meetingId: meeting.id,
+            ageHours: Math.round(ageHours),
+            message: `[${meeting.id}] Pending reschedule is ${Math.round(ageHours)}h old — scheduling replacement`,
+          });
+
+          let newStart: string | undefined;
+          let newEnd: string | undefined;
+
+          // Use proposed time if within meeting window
+          const proposed = meeting.pendingReschedule.proposedTime;
+          if (proposed) {
+            const proposedStart = new Date(proposed.start);
+            const windowEnd = new Date(now.getTime() + meeting.window.days * 24 * 60 * 60 * 1000);
+            if (proposedStart > now && proposedStart < windowEnd) {
+              newStart = proposed.start;
+              newEnd = proposed.end;
+              logger.info({
+                operation: 'smart_meeting_using_proposed_time',
+                meetingId: meeting.id,
+                proposedStart: newStart,
+                message: `[${meeting.id}] Using attendee-proposed time: ${newStart}`,
+              });
+            }
+          }
+
+          // Fall back to findMeetingTimes
+          if (!newStart) {
+            const windowStart = now;
+            const windowEnd = new Date(now.getTime() + meeting.window.days * 24 * 60 * 60 * 1000);
+            try {
+              const result = await this.microsoftService.findMeetingTimes({
+                attendees: meeting.attendees,
+                meetingDuration: meeting.durationMinutes,
+                timeConstraintStart: windowStart.toISOString(),
+                timeConstraintEnd: windowEnd.toISOString(),
+                maxCandidates: 5,
+              });
+              const suggestions = (result as any).suggestions ?? [];
+              if (suggestions.length > 0) {
+                newStart = suggestions[0].timeSlot?.start;
+                newEnd = suggestions[0].timeSlot?.end;
+              }
+            } catch (err) {
+              logger.warn({
+                operation: 'smart_meeting_reschedule_find_times_error',
+                meetingId: meeting.id,
+                error: (err as Error).message,
+                message: `[${meeting.id}] findMeetingTimes failed during reschedule — will retry tomorrow`,
+              });
+              continue;
+            }
+          }
+
+          if (!newStart || !newEnd) {
+            logger.warn({
+              operation: 'smart_meeting_reschedule_no_slot',
+              meetingId: meeting.id,
+              message: `[${meeting.id}] No slot found for reschedule — will retry tomorrow`,
+            });
+            continue;
+          }
+
+          try {
+            await this.microsoftService.createEvent({
+              subject: meeting.title,
+              startDateTime: newStart,
+              endDateTime: newEnd,
+              attendees: meeting.attendees,
+            });
+          } catch (err) {
+            logger.warn({
+              operation: 'smart_meeting_reschedule_create_error',
+              meetingId: meeting.id,
+              error: (err as Error).message,
+              message: `[${meeting.id}] createEvent failed during reschedule — will retry tomorrow`,
+            });
+            continue;
+          }
+
+          const slotDate = new Date(newStart);
+          const historyEntry: MeetingHistory = {
+            date: toISODate(slotDate),
+            dayOfWeek: DAY_NAMES_SHORT[slotDate.getDay()] as DayOfWeek,
+            startTime: toHHMM(slotDate),
+            status: 'scheduled',
+          };
+          meeting.history.push(historyEntry);
+          delete meeting.pendingReschedule;
+
+          // Persist immediately so other phases see the updated state
+          const cfg = await loadSmartMeetingsConfig(configPath);
+          const meetingInConfig = cfg.meetings.find(m => m.id === meeting.id);
+          if (meetingInConfig) {
+            meetingInConfig.history = meeting.history;
+            delete meetingInConfig.pendingReschedule;
+          }
+          await saveSmartMeetingsConfig(configPath, cfg);
+
+          logger.info({
+            operation: 'smart_meeting_rescheduled_after_decline',
+            meetingId: meeting.id,
+            newStart,
+            message: `[${meeting.id}] Rescheduled at ${newStart} after all-declined detection`,
+          });
+          continue;
+        }
+
+        // ── Phase B: Detect newly declined ────────────────────────────────────
+        // Get calendar window (look-ahead) — use the meeting's own window setting
+        const lookAheadEnd = new Date(now.getTime() + meeting.window.days * 24 * 60 * 60 * 1000);
+        let calendarEvents: any[] = [];
+        try {
+          const calResponse = await this.microsoftService.listEvents({
+            startDate: now.toISOString(),
+            endDate: lookAheadEnd.toISOString(),
+            count: 200,
+          });
+          calendarEvents = (calResponse as any).events ?? [];
+        } catch (err) {
+          logger.warn({
+            operation: 'smart_meeting_decline_check_calendar_error',
+            meetingId: meeting.id,
+            error: (err as Error).message,
+            message: `[${meeting.id}] Could not fetch calendar for decline check — skipping`,
+          });
+          continue;
+        }
+
+        const matchingEvent = this.findMatchingEvent(calendarEvents, meeting);
+        if (!matchingEvent) {
+          continue;
+        }
+
+        const eventId = matchingEvent.id;
+        if (!eventId) {
+          continue;
+        }
+
+        // Fetch full event details to get attendee status
+        let eventDetails: any;
+        try {
+          eventDetails = await this.microsoftService.fetchEventDetails(eventId);
+        } catch (err) {
+          logger.warn({
+            operation: 'smart_meeting_decline_fetch_event_error',
+            meetingId: meeting.id,
+            eventId,
+            error: (err as Error).message,
+            message: `[${meeting.id}] Could not fetch event details for decline check — skipping`,
+          });
+          continue;
+        }
+
+        const attendees: any[] = (eventDetails as any)?.attendees ?? [];
+        const organizerEmail = (eventDetails as any)?.organizer?.emailAddress?.address?.toLowerCase();
+
+        // Filter to non-organiser attendees matching our managed attendee list
+        const managedAttendeeStatuses = attendees.filter((a: any) => {
+          const email = (a.emailAddress?.address ?? '').toLowerCase();
+          return (
+            email !== organizerEmail &&
+            meeting.attendees.some(ma => ma.toLowerCase() === email)
+          );
+        });
+
+        if (managedAttendeeStatuses.length === 0) {
+          continue;
+        }
+
+        const allDeclined = managedAttendeeStatuses.every(
+          (a: any) => a.status?.response === 'declined'
+        );
+
+        if (!allDeclined) {
+          continue;
+        }
+
+        logger.info({
+          operation: 'smart_meeting_all_declined_detected',
+          meetingId: meeting.id,
+          eventId,
+          attendeeCount: managedAttendeeStatuses.length,
+          message: `[${meeting.id}] All attendees declined — deleting event and setting pendingReschedule`,
+        });
+
+        // Delete the event (no cancellation — they already declined)
+        try {
+          await this.microsoftService.deleteEvent({ eventId, sendCancellation: false });
+        } catch (err) {
+          logger.warn({
+            operation: 'smart_meeting_decline_delete_error',
+            meetingId: meeting.id,
+            eventId,
+            error: (err as Error).message,
+            message: `[${meeting.id}] deleteEvent failed after all-declined detection — skipping`,
+          });
+          continue;
+        }
+
+        // Extract proposedNewTime from first declining attendee if present
+        const decliningAttendee = managedAttendeeStatuses[0];
+        const proposedNewTime = decliningAttendee?.proposedNewTime;
+        let proposedTime: PendingReschedule['proposedTime'] | undefined;
+        if (proposedNewTime?.start?.dateTime && proposedNewTime?.end?.dateTime) {
+          proposedTime = {
+            start: proposedNewTime.start.dateTime,
+            end: proposedNewTime.end.dateTime,
+          };
+        }
+
+        // Parse original event time
+        const eventStartIso: string = matchingEvent.start?.dateTime ?? matchingEvent.startDateTime ?? '';
+        const eventStartDate = eventStartIso ? new Date(eventStartIso) : new Date();
+
+        const pendingReschedule: PendingReschedule = {
+          eventId,
+          detectedAt: now.toISOString(),
+          attendeeEmail: decliningAttendee?.emailAddress?.address ?? meeting.attendees[0] ?? '',
+          originalDate: toISODate(eventStartDate),
+          originalTime: toHHMM(eventStartDate),
+          ...(proposedTime ? { proposedTime } : {}),
+        };
+
+        // Persist to config
+        const cfg = await loadSmartMeetingsConfig(configPath);
+        const meetingInConfig = cfg.meetings.find(m => m.id === meeting.id);
+        if (meetingInConfig) {
+          meetingInConfig.pendingReschedule = pendingReschedule;
+        }
+        await saveSmartMeetingsConfig(configPath, cfg);
+
+        // Also update in-memory so forward scheduling skips this meeting
+        meeting.pendingReschedule = pendingReschedule;
+
+        logger.info({
+          operation: 'smart_meeting_pending_reschedule_set',
+          meetingId: meeting.id,
+          originalDate: pendingReschedule.originalDate,
+          originalTime: pendingReschedule.originalTime,
+          hasProposedTime: !!proposedTime,
+          message: `[${meeting.id}] pendingReschedule set — will reschedule in 24h`,
+        });
+      } catch (err) {
+        logger.error({
+          operation: 'smart_meeting_decline_check_error',
+          meetingId: meeting.id,
+          error: (err as Error).message,
+          message: `[${meeting.id}] Unexpected error in checkDeclinedMeetings — continuing`,
+        });
+      }
+    }
   }
 
   /**

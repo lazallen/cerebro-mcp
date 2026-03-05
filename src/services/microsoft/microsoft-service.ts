@@ -1570,6 +1570,14 @@ export class MicrosoftService implements BaseService {
   /**
    * Get event details by ID
    */
+  /**
+   * Public wrapper around getEvent — used by the smart meeting scheduler
+   * to inspect attendee decline status without going through the tool registry.
+   */
+  async fetchEventDetails(eventId: string): Promise<unknown> {
+    return this.getEvent({ eventId });
+  }
+
   private async getEvent(input: Record<string, unknown>): Promise<unknown> {
     const eventId = input['eventId'] as string;
 
