@@ -22,6 +22,8 @@ export function createTaskRegistry(dependencies?: {
   systemDir?: string;
   /** WebclientApiClient for Slack Saved Items ingestion (Feature 020) */
   slackSavedItemsApiClient?: any;
+  /** PortfolioRef for Smart Meeting Scheduler (Feature 023) */
+  portfolioRef?: any;
 }): TaskRegistry {
   const registry: TaskRegistry = new Map();
 
@@ -38,6 +40,7 @@ export function createTaskRegistry(dependencies?: {
     hasMicrosoftService: !!dependencies?.microsoftService,
     hasRootDir: !!dependencies?.rootDir,
     rootDir: dependencies?.rootDir,
+    hasPortfolioRef: !!dependencies?.portfolioRef,
     message: 'Task registry dependencies check',
   });
 
@@ -210,6 +213,29 @@ export function createTaskRegistry(dependencies?: {
         taskType: 'slack-saved-items-ingestion',
         error: (error as Error).message,
         message: 'Failed to register slack-saved-items-ingestion task handler',
+      });
+    }
+  }
+
+  // Register smart-meeting-scheduler task (Feature 023)
+  if (dependencies?.microsoftService && dependencies?.portfolioRef) {
+    try {
+      const { SmartMeetingSchedulerTask } = require('./smart-meeting-scheduler-task');
+      registry.set(
+        'smart-meeting-scheduler',
+        new SmartMeetingSchedulerTask(dependencies.microsoftService, dependencies.portfolioRef)
+      );
+      logger.debug({
+        operation: 'task_handler_registered',
+        taskType: 'smart-meeting-scheduler',
+        message: 'Registered smart-meeting-scheduler task handler',
+      });
+    } catch (error) {
+      logger.warn({
+        operation: 'task_handler_registration_error',
+        taskType: 'smart-meeting-scheduler',
+        error: (error as Error).message,
+        message: 'Failed to register smart-meeting-scheduler task handler',
       });
     }
   }
