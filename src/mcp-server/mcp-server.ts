@@ -25,7 +25,6 @@ import {
  * MCP Server class
  */
 export class MCPServer {
-  private readonly transport: StreamableHTTPServerTransport;
   private readonly serviceRegistry: ServiceRegistry;
   private readonly timeout: number;
   private readonly logToolInput: boolean;
@@ -39,19 +38,12 @@ export class MCPServer {
     this.timeout = parseInt(process.env['MCP_TIMEOUT'] ?? '30000', 10);
     this.logToolInput = process.env['MCP_LOG_TOOL_INPUT'] === 'true';
 
-    // Create Streamable HTTP transport in STATELESS mode
-    // Stateless mode: no session IDs required, each request is independent
-    // This prevents "Mcp-Session-Id header is required" errors on subsequent connections
-    this.transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: undefined, // undefined = stateless mode
-    });
-
     logger.info({
       operation: 'mcp_server_init',
       timeout: this.timeout,
       logToolInput: this.logToolInput,
-      transportMode: 'stateless',
-      msg: 'MCP server initialized with Streamable HTTP transport (stateless mode)',
+      transportMode: 'stateless-per-session',
+      msg: 'MCP server initialized (per-session transport mode)',
     });
   }
 
@@ -60,20 +52,10 @@ export class MCPServer {
    */
   async start(): Promise<void> {
     try {
-      // Create a server instance for the transport
-      // This will be the default server, but sessions can create their own
-      const server = this.createServer();
-
-      // Setup handlers for this server
-      this.setupHandlers(server);
-
-      // Connect transport
-      await server.connect(this.transport);
-
       logger.info({
         operation: 'mcp_server_started',
         serviceCount: this.serviceRegistry.list().length,
-        msg: 'MCP server started with Streamable HTTP transport',
+        msg: 'MCP server started (per-session transport mode)',
       });
     } catch (error) {
       logger.error({
@@ -103,14 +85,15 @@ export class MCPServer {
   }
 
   /**
-   * Handle HTTP request (GET for SSE or POST for messages)
-   * This method handles both SSE connections and message posts
+   * Handle HTTP request by creating a per-session transport + server.
+   *
+   * MCP SDK v1.26.0 requires a new StreamableHTTPServerTransport per session
+   * in stateless mode. Reusing a single transport causes errors on reconnection.
    */
   async handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     const correlationId = generateCorrelationId();
 
     try {
-      // Log request with headers for debugging connection issues
       logger.info({
         operation: 'mcp_http_request',
         correlationId,
@@ -124,19 +107,17 @@ export class MCPServer {
         msg: `MCP HTTP request: ${req.method ?? 'GET'} ${req.url ?? '/'}`,
       });
 
-      // Validate Accept header for SSE connections
-      const acceptHeader = req.headers['accept'];
-      if (req.method === 'GET' && !acceptHeader?.includes('text/event-stream')) {
-        logger.warn({
-          operation: 'mcp_http_request_invalid_accept',
-          correlationId,
-          acceptHeader,
-          msg: 'Client did not provide correct Accept header for SSE connection',
-        });
-      }
+      // Create a fresh transport + server for each request (per-session)
+      const transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: undefined, // stateless mode
+      });
 
-      // Delegate to the Streamable HTTP transport
-      await this.transport.handleRequest(req, res);
+      const server = this.createServer();
+      this.setupHandlers(server);
+      await server.connect(transport);
+
+      // Delegate to the per-session transport
+      await transport.handleRequest(req, res);
 
       logger.info({
         operation: 'mcp_http_request_success',

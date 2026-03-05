@@ -560,6 +560,7 @@ export class OAuthServer {
     // Add Microsoft-specific parameters
     if (oauth.tenantId) {
       authParams['response_mode'] = 'query';
+      authParams['prompt'] = 'select_account';
     }
 
     return `${oauth.authEndpoint}?${querystring.stringify(authParams)}`;

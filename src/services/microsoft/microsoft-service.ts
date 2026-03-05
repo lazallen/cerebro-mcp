@@ -1495,47 +1495,73 @@ export class MicrosoftService implements BaseService {
     const startDateTime = formatDateForCalendarView(startDate);
     const endDateTime = formatDateForCalendarView(endDate);
 
-    // Use calendarView to get expanded instances of recurring events
-    const allEvents: unknown[] = [];
-    let nextLink: string | undefined = undefined;
-    let requestCount = 0;
-
-    do {
-      const response = nextLink
-        ? await this.apiClient.request(nextLink.replace('https://graph.microsoft.com/v1.0', ''), {
-            method: 'GET',
-          })
-        : await this.apiClient.request('/me/calendarView', {
-            method: 'GET',
-            params: {
-              startDateTime,
-              endDateTime,
-              $top: count.toString(),
-              $select:
-                'id,subject,start,end,location,organizer,attendees,onlineMeeting,isAllDay,webLink',
-              $orderby: 'start/dateTime asc',
-            },
-          });
-
-      const data = response.data as { value?: unknown[]; '@odata.nextLink'?: string };
-      if (data.value) {
-        allEvents.push(...data.value);
+    // Fetch all calendars so we can query each one (Outlook UI shows all calendars merged)
+    const calendarIds: string[] = [];
+    try {
+      const calResponse = await this.apiClient.request('/me/calendars', {
+        method: 'GET',
+        params: { $select: 'id', $top: '50' },
+      });
+      const calData = calResponse.data as { value?: Array<{ id: string }> };
+      if (calData.value) {
+        calendarIds.push(...calData.value.map((c) => c.id));
       }
+    } catch {
+      // Fall back to default calendar if listing fails
+      calendarIds.push('');
+    }
 
-      nextLink = data['@odata.nextLink'];
-      requestCount++;
+    // Query each calendar's calendarView and merge results
+    // Deduplicate by subject+startDateTime since the same event has different IDs across calendars
+    const eventMap = new Map<string, unknown>();
+    const params = {
+      startDateTime,
+      endDateTime,
+      $top: Math.min(count * 2, 200).toString(),
+      $select: 'id,subject,start,end,location,organizer,attendees,onlineMeeting,isAllDay,webLink',
+      $orderby: 'start/dateTime asc',
+    };
 
-      // Stop if we've reached the requested count or made too many requests
-      if (allEvents.length >= count || requestCount >= 10) {
-        break;
-      }
-    } while (nextLink);
+    for (const calId of calendarIds) {
+      const endpoint = calId ? `/me/calendars/${calId}/calendarView` : '/me/calendarView';
+      let nextLink: string | undefined = undefined;
+      let requestCount = 0;
+      do {
+        try {
+          const response = nextLink
+            ? await this.apiClient.request(nextLink.replace('https://graph.microsoft.com/v1.0', ''), { method: 'GET' })
+            : await this.apiClient.request(endpoint, { method: 'GET', params });
+          const data = response.data as { value?: Array<{ id: string; subject?: string; start?: { dateTime?: string } }>; '@odata.nextLink'?: string };
+          if (data.value) {
+            for (const event of data.value) {
+              // Use subject+startDateTime as dedup key — same event has different IDs across calendars
+              const dedupeKey = `${event.subject ?? ''}|${event.start?.dateTime ?? ''}`;
+              if (!eventMap.has(dedupeKey)) {
+                eventMap.set(dedupeKey, event);
+              }
+            }
+          }
+          nextLink = data['@odata.nextLink'];
+          requestCount++;
+          if (requestCount >= 5) break;
+        } catch {
+          break; // skip calendars we can't read
+        }
+      } while (nextLink);
+    }
+
+    // Sort merged events by start time
+    const allEvents = Array.from(eventMap.values()).sort((a, b) => {
+      const aStart = ((a as Record<string, unknown>)['start'] as Record<string, string>)?.dateTime ?? '';
+      const bStart = ((b as Record<string, unknown>)['start'] as Record<string, string>)?.dateTime ?? '';
+      return aStart.localeCompare(bStart);
+    });
 
     return {
       events: allEvents.slice(0, count),
       count: allEvents.slice(0, count).length,
       totalRetrieved: allEvents.length,
-      hasMore: nextLink !== undefined,
+      hasMore: allEvents.length > count,
       startDate: startDateTime,
       endDate: endDateTime,
     };

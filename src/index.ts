@@ -102,6 +102,14 @@ async function main(): Promise<void> {
           return;
         }
 
+        // Only handle /mcp path - return 404 for everything else
+        // This prevents .well-known, /register, etc. from hitting the MCP transport
+        if (urlPath !== '/mcp') {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Not Found' }));
+          return;
+        }
+
         // Handle MCP requests
         if (!mcpServer) {
           logger.error({ operation: 'mcp_http_request_error', msg: 'MCP server not initialized' });
@@ -143,7 +151,7 @@ async function main(): Promise<void> {
         socket.setTimeout(120000); // 2 minute socket timeout
       });
 
-      mcpHttpServer!.listen(globalConfig.mcpServerPort, 'localhost', () => {
+      mcpHttpServer!.listen(globalConfig.mcpServerPort, '0.0.0.0', () => {
         logger.info({
           operation: 'mcp_http_server_started',
           port: globalConfig.mcpServerPort,
