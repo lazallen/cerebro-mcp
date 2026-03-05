@@ -34,6 +34,17 @@ Runs on a cron schedule. Key tasks:
 ### Policy Engine (`src/policy/`)
 Evaluates triage items against rules defined in `system/` directory. Drives the `triage_*` MCP tools.
 
+### Smart Meeting Scheduler (`src/services/smart-meetings/`)
+Config-driven recurring meeting manager (Feature 023). Replaces Reclaim.ai. Two heartbeat phases:
+- **forward-scheduling** (daily 07:00 Mon–Fri): ensures each enabled meeting has an event scheduled ~21 days out; skips if already scheduled; processes overdue meetings first (by cadence debt).
+- **rebalance** (Monday 08:00): detects conflicts, reschedules affected meetings (48h protection — never moves a meeting within 48h).
+
+Key files:
+- `smart-meetings-config.json` — runtime config (gitignored); see `specs/023-smart-meeting-scheduler/`
+- `src/services/smart-meetings/smart-meetings-service.ts` — MCP tool `smart_meetings_status`
+- `src/auth-server/smart-meeting-router.ts` — dashboard at `https://localhost:3333/smart-meetings`
+- `src/services/smart-meetings/portfolio-ref.ts` — shared in-process ref for time portfolio (written by heartbeat, read by MCP tool)
+
 ### Microsoft Tools (`src/tools/microsoft/`)
 Wraps Microsoft Graph API v1.0. Covers: calendar events, email, OneNote, meeting rooms, meeting responses.
 
@@ -52,6 +63,7 @@ npm run dev       # Watch mode
 ## Configuration
 
 - `heartbeat-config.json` — runtime config (gitignored). See `heartbeat-config.example.json`.
+- `smart-meetings-config.json` — smart meeting definitions (gitignored). See `specs/023-smart-meeting-scheduler/`.
 - `.tokens/` — OAuth token storage (gitignored)
 - `system/` — Policy rules and system config (gitignored from repo, lives in vault)
 

@@ -34,7 +34,7 @@ async function main(): Promise<void> {
 
   try {
     // 1. Initialize service registry and register available services
-    await registerServices(serviceRegistry);
+    const { portfolioRef } = await registerServices(serviceRegistry);
 
     // 2. Create MCP server (without transport - will use HTTP)
     mcpServer = new MCPServer(serviceRegistry);
@@ -216,6 +216,7 @@ async function main(): Promise<void> {
           lfClient: localFoundryService,
           microsoftService: microsoftService,
           rootDir: process.env.ROOT_DIR || './context',
+          portfolioRef,
         });
 
         await heartbeatService.start();

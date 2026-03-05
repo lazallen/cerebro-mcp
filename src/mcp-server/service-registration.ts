@@ -17,6 +17,7 @@ import { WebclientApiClient } from '../services/slack-saved-items/webclient-api-
 import { ServiceConfig } from '../types/service';
 import { loadLocalFoundryConfig } from '../common/config';
 import { ConfigLoader } from '../services/heartbeat/config-loader';
+import { SmartMeetingsService, createPortfolioRef, PortfolioRef } from '../services/smart-meetings';
 
 /**
  * Check if Microsoft 365 credentials are configured
@@ -37,14 +38,24 @@ export function hasSlackCredentials(): boolean {
 }
 
 /**
+ * Result of registering all services, including shared refs needed by other subsystems.
+ */
+export interface RegisterServicesResult {
+  portfolioRef: PortfolioRef;
+}
+
+/**
  * Register all available services based on environment configuration
  * @param registry Service registry to register services with
+ * @returns Shared refs produced during registration (e.g. portfolioRef for HeartbeatService)
  */
-export async function registerServices(registry: ServiceRegistry): Promise<void> {
+export async function registerServices(registry: ServiceRegistry): Promise<RegisterServicesResult> {
   logger.info({
     operation: 'service_registration_start',
     msg: 'Starting service registration',
   });
+
+  const portfolioRef = createPortfolioRef();
 
   let registeredCount = 0;
 
@@ -238,6 +249,31 @@ export async function registerServices(registry: ServiceRegistry): Promise<void>
     });
   }
 
+  // Smart Meetings (always registered — file-based, no credentials required)
+  try {
+    const smartMeetingsConfigPath =
+      process.env['SMART_MEETINGS_CONFIG_FILE'] ?? './smart-meetings-config.json';
+    const microsoftService = registry.get('microsoft');
+    const smartMeetingsService = new SmartMeetingsService(
+      microsoftService,
+      smartMeetingsConfigPath,
+      portfolioRef
+    );
+    await registry.register(smartMeetingsService);
+
+    logger.info({
+      service: 'smart-meetings',
+      configPath: smartMeetingsConfigPath,
+      msg: 'Smart Meetings service registered successfully',
+    });
+  } catch (error) {
+    logger.error({
+      service: 'smart-meetings',
+      error: error instanceof Error ? error.message : String(error),
+      msg: 'Failed to register Smart Meetings service',
+    });
+  }
+
   // Log summary
   registeredCount = registry.list().length;
   logger.info({
@@ -253,4 +289,6 @@ export async function registerServices(registry: ServiceRegistry): Promise<void>
       hint: 'Example: MICROSOFT_CLIENT_ID, MICROSOFT_CLIENT_SECRET, MICROSOFT_TENANT_ID for Microsoft 365',
     });
   }
+
+  return { portfolioRef };
 }

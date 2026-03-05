@@ -29,6 +29,7 @@ export class HeartbeatService {
       oneNoteClient?: any;
       microsoftService?: any;
       rootDir?: string;
+      portfolioRef?: any;
     }
   ) {
     this.configLoader = new ConfigLoader(configPath);
@@ -84,6 +85,7 @@ export class HeartbeatService {
         rootDir: config.rootDir,
         systemDir,
         slackSavedItemsApiClient: this.slackSavedItemsApiClient,
+        portfolioRef: this.dependencies?.portfolioRef,
       });
 
       // Initialize scheduler
@@ -271,6 +273,7 @@ export class HeartbeatService {
         rootDir: newConfig.rootDir,
         systemDir: reloadedSystemDir,
         slackSavedItemsApiClient: this.slackSavedItemsApiClient,
+        portfolioRef: this.dependencies?.portfolioRef,
       });
 
       // Create new scheduler with updated registry

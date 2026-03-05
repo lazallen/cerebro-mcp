@@ -24,6 +24,8 @@ import { isTokenExpired } from '../types/token';
 import type { MCPServer } from '../mcp-server';
 import { SessionCredentialStorage } from '../services/slack-saved-items/session-credential-storage';
 import { TriageRouter, CalendarResponder } from './triage-router';
+import { SmartMeetingRouter } from './smart-meeting-router';
+import type { PortfolioRef } from '../services/smart-meetings/portfolio-ref';
 
 /**
  * Service registration for auth server
@@ -100,6 +102,7 @@ export class OAuthServer {
   private isRunning: boolean = false;
   private mcpServer?: MCPServer;
   private triageRouter?: TriageRouter;
+  private smartMeetingRouter?: SmartMeetingRouter;
   private readonly slackCredentialStorage: SessionCredentialStorage;
 
   constructor(port?: number) {
@@ -211,6 +214,20 @@ export class OAuthServer {
       systemDir,
       contextDir,
       msg: 'Triage Review UI registered at /triage',
+    });
+  }
+
+  /**
+   * Register the Smart Meetings dashboard router.
+   * @param configPath Path to smart-meetings-config.json
+   * @param portfolioRef Shared reference to the latest time portfolio summary
+   */
+  registerSmartMeetingRouter(configPath: string, portfolioRef: PortfolioRef): void {
+    this.smartMeetingRouter = new SmartMeetingRouter({ configPath, portfolioRef });
+    logger.info({
+      operation: 'smart_meeting_router_registered',
+      configPath,
+      msg: 'Smart Meetings dashboard registered at /smart-meetings',
     });
   }
 
@@ -366,6 +383,16 @@ export class OAuthServer {
           await this.triageRouter.handleRequest(req, res, pathname);
         } else {
           this.renderError(res, 'Triage UI Not Available', 'Triage router not registered');
+        }
+        return;
+      }
+
+      // Handle Smart Meetings dashboard routes
+      if (pathname === '/smart-meetings' || pathname.startsWith('/smart-meetings/')) {
+        if (this.smartMeetingRouter) {
+          await this.smartMeetingRouter.handleRequest(req, res, pathname);
+        } else {
+          this.renderError(res, 'Smart Meetings Not Available', 'Smart Meetings router not registered');
         }
         return;
       }
@@ -1155,8 +1182,9 @@ export class OAuthServer {
       <span class="nav-title">Cerebro</span>
     </a>
     <ul class="nav-links">
-      <li><a href="/"       class="nav-link active">Auth</a></li>
-      <li><a href="/triage" class="nav-link">Triage</a></li>
+      <li><a href="/"              class="nav-link active">Auth</a></li>
+      <li><a href="/triage"        class="nav-link">Triage</a></li>
+      <li><a href="/smart-meetings" class="nav-link">Smart Meetings</a></li>
     </ul>
   </nav>
   <div id="page-content">
