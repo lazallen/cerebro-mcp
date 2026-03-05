@@ -86,6 +86,14 @@
 - CREATE `src/services/heartbeat/tasks/smart-meeting-scheduler-task.ts` — `SmartMeetingSchedulerTask implements TaskHandler`, with `runForwardScheduling` and `runRebalance` methods
 - MODIFY `src/services/heartbeat/tasks/task-registry.ts` — add `portfolioRef` to `createTaskRegistry` dependencies parameter; register `smart-meeting-scheduler` handler when `microsoftService && portfolioRef` are present
 
+**History status retroactive update** (must run at the start of `runForwardScheduling` before debt calculation):
+1. For each meeting, find any `history[]` entries with `status: 'scheduled'` and a `date` in the past
+2. For each such entry, query `calendarView` for a ±1h window around the scheduled time
+3. If a matching event is found (title substring match AND attendee match) → set `status: 'occurred'`
+4. If no matching event is found (meeting was cancelled) → set `status: 'skipped'`
+5. Persist updated history to `smart-meetings-config.json`
+This ensures cadence debt is calculated from confirmed occurrences, not stale scheduled entries.
+
 **Acceptance**: `npm run build` passes; task registry registers the handler without error when dependencies are supplied; forward-scheduling and rebalance branches are reachable via `cfg.phase` discriminator
 
 ---

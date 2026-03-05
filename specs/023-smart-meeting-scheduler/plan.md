@@ -24,7 +24,7 @@ Both phases are configured as separate entries in `heartbeat-config.json`, both 
   "name": "Smart Meeting Scheduler — Forward Scheduling",
   "type": "smart-meeting-scheduler",
   "schedule": "0 7 * * 1-5",
-  "enabled": true,
+  "enabled": false,
   "config": {
     "phase": "forward-scheduling",
     "configPath": "./smart-meetings-config.json"
@@ -35,7 +35,7 @@ Both phases are configured as separate entries in `heartbeat-config.json`, both 
   "name": "Smart Meeting Scheduler — Weekly Rebalance",
   "type": "smart-meeting-scheduler",
   "schedule": "0 8 * * 1",
-  "enabled": true,
+  "enabled": false,
   "config": {
     "phase": "rebalance",
     "configPath": "./smart-meetings-config.json"
@@ -261,6 +261,8 @@ export function createPortfolioRef(): PortfolioRef {
 
 `SmartMeetingSchedulerTask` writes `portfolioRef.current` at the end of each rebalance pass. `SmartMeetingsService` reads it to populate the `timePortfolio` field in the tool response without an extra Graph call.
 
+**Creation location**: `portfolioRef` is created once in `src/mcp-server/service-registration.ts` (alongside `SmartMeetingsService`), then passed to `index.ts` which threads it into `HeartbeatService`'s dependencies object — the same pattern used for `slackSavedItemsApiClient`. It is NOT created in `oauth-server.ts`.
+
 ---
 
 ## Changes to Existing Files
@@ -301,11 +303,11 @@ Register the new router alongside the existing `TriageRouter` registration:
 ```typescript
 import { registerSmartMeetingRouter } from './smart-meeting-router';
 
-// Inside OAuthServer.start() or equivalent setup:
-registerSmartMeetingRouter(this, {
-  microsoftService: this.microsoftService,
-  configPath: this.smartMeetingsConfigPath,
-  portfolioRef: this.portfolioRef,
+// Inside OAuthServer's registerSmartMeetingRouter call (post-construction,
+// matching the registerTriageRouter pattern):
+registerSmartMeetingRouter(app, {
+  configPath,    // passed from index.ts
+  portfolioRef,  // passed from index.ts (created in service-registration.ts)
 });
 ```
 

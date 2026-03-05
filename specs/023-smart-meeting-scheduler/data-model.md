@@ -258,11 +258,19 @@ export interface WeeklyPortfolioSlice {
 
 /**
  * Warning raised when a single time category has been dominant
- * for imbalanceWindowWeeks consecutive weeks.
+ * for imbalanceWindowWeeks consecutive weeks, OR as a stale-data
+ * sentinel when Graph API was unavailable during portfolio calculation.
  * Included in TimePortfolioSummary.warnings[].
  */
 export interface PortfolioImbalanceWarning {
-  /** Which category has been dominant */
+  /**
+   * Discriminates between a genuine imbalance warning and a stale-data
+   * sentinel (raised when the Graph API was unavailable and portfolio
+   * data could not be refreshed).
+   */
+  warningType: 'imbalance' | 'stale-data';
+
+  /** Which category has been dominant (or 'focus' as a placeholder for stale-data) */
   category: 'focus' | 'recurring' | 'adHoc';
 
   /** Number of consecutive weeks this category has exceeded the threshold */
@@ -354,6 +362,17 @@ export interface SmartMeetingsStatusResponse {
    * Null if the rebalance pass has never run (server just started).
    */
   timePortfolio: TimePortfolioSummary | null;
+
+  /**
+   * Optional metadata about response quality.
+   * Present when portfolio data is stale or unavailable.
+   */
+  _meta?: {
+    /** True when portfolioRef.current is null and Graph API was unavailable */
+    portfolioUnavailable?: boolean;
+    /** Human-readable reason, e.g. "Graph API unavailable at last rebalance run" */
+    reason?: string;
+  };
 }
 
 /**
