@@ -110,9 +110,20 @@
     },
     {
       "id": "smart-meeting-forward",
-      "name": "Smart Meeting Scheduler — Forward Scheduling",
+      "name": "Smart Meeting Scheduler — Forward Scheduling (8 AM)",
       "type": "smart-meeting-scheduler",
-      "schedule": "0 7 * * 1-5",
+      "schedule": "0 8 * * 1-5",
+      "enabled": false,
+      "config": {
+        "phase": "forward-scheduling",
+        "configPath": "./smart-meetings-config.json"
+      }
+    },
+    {
+      "id": "smart-meeting-forward-backup",
+      "name": "Smart Meeting Scheduler — Forward Scheduling Backup (9 AM)",
+      "type": "smart-meeting-scheduler",
+      "schedule": "0 9 * * 1-5",
       "enabled": false,
       "config": {
         "phase": "forward-scheduling",
@@ -123,7 +134,7 @@
       "id": "smart-meeting-rebalance",
       "name": "Smart Meeting Scheduler — Weekly Rebalance",
       "type": "smart-meeting-scheduler",
-      "schedule": "0 8 * * 1",
+      "schedule": "0 9 * * 1",
       "enabled": false,
       "config": {
         "phase": "rebalance",
