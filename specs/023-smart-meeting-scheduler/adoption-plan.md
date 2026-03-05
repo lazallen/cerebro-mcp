@@ -6,6 +6,35 @@
 
 ---
 
+## Current Status — updated 2026-03-05
+
+**Implementation complete.** Feature branch `feature/023-smart-meeting-scheduler` is pushed to `lazallen/cerebro-mcp`. All commits through declined meeting detection are included.
+
+### What's in the build
+
+- Forward-scheduling pass (daily 08:00 Mon–Fri) — schedules meetings ~21 days out, respects cadence debt ordering
+- Rebalance pass (Monday 08:00) — detects conflicts, reschedules with 48h protection; calculates time portfolio
+- Declined meeting detection — if all attendees decline an event: deletes immediately (no cancellation spam), sets `pendingReschedule`, auto-reschedules after 24h using proposed time if valid
+- `smart_meetings_status` MCP tool — returns all meeting states including `pendingReschedule` where set
+- Dashboard at `https://localhost:3333/smart-meetings` — meetings table, portfolio bars, amber ⚠ Declined badge with cancel button
+- Personal config folder pattern — `cerebro-mcp/personal/` gitignored; place `smart-meetings-config.json` and `heartbeat-config.json` there
+
+### Phase 0 progress
+
+- [x] `npm run build` exits 0 (verified 2026-03-05)
+- [x] `npm test` exits 0 — 636 tests pass, 718 total (verified 2026-03-05)
+- [ ] Config files in place (still to do — see Phase 0 checklist below)
+- [ ] Dashboard smoke-test (blocked on config)
+- [ ] MCP tool smoke-test (blocked on config)
+
+### Next action
+
+Set up `cerebro-mcp/personal/smart-meetings-config.json` and `cerebro-mcp/personal/heartbeat-config.json` to complete Phase 0, then proceed to Phase 1 pilot.
+
+**Review meeting booked: Friday 13 March 2026, 09:00–09:30** — pilot pass/fail decision and Phase 2 kickoff.
+
+---
+
 ## Phase 0 — Post-Implementation Validation
 
 **Gate before enabling any heartbeat tasks. Estimated: 1 day.**
@@ -14,9 +43,9 @@ All items below must pass before `enabled: true` is set on any task.
 
 ### Build and Tests
 
-- [ ] `npm run build` exits 0 with no TypeScript errors
-- [ ] `npm test` exits 0 — all T018–T024 test suites pass (cadence debt brackets, portfolio calculator, tool response shape, forward-scheduling idempotency, 48h protection, rebalance)
-- [ ] No pre-existing tests broken by the new code (T024 gate)
+- [x] `npm run build` exits 0 with no TypeScript errors _(verified 2026-03-05)_
+- [x] `npm test` exits 0 — 636 tests pass, 718 total _(verified 2026-03-05)_
+- [x] No pre-existing tests broken by the new code _(verified 2026-03-05)_
 
 ### Config Validation
 
@@ -176,15 +205,15 @@ If cerebro created duplicates during a bad run, delete the cerebro-created event
 
 ## Timeline
 
-| Day | Milestone |
-|---|---|
-| D0 | Implementation complete (T001–T027 done) |
-| D1 | Phase 0 validation complete — all checklists green |
-| D2–D8 | Phase 1 pilot (key 1:1s, 1 week) |
-| D9 | Pilot pass/fail decision |
-| D10 (Monday) | Phase 2: enable all 34, disable Reclaim in bulk |
-| D10–D24 | Phase 3: monitoring window, Reclaim account kept active |
-| D40 | Reclaim account safe to cancel (30-day safety window elapsed) |
+| Day | Date | Milestone |
+|---|---|---|
+| D0 | 2026-03-05 (Thu) | ✅ Implementation complete — declined meeting detection included |
+| D1 | 2026-03-06 (Fri) or 2026-03-09 (Mon) | Phase 0 validation — config files set up, dashboard + tool smoke-test |
+| D2–D8 | 2026-03-09 – 2026-03-13 | Phase 1 pilot (3–5 key 1:1s enabled) |
+| D9 | **2026-03-13 (Fri) 09:00** | **Review meeting booked** — pilot pass/fail decision |
+| D10 | 2026-03-16 (Mon) | Phase 2: enable all 34, disable Reclaim in bulk (if pilot passed) |
+| D10–D24 | 2026-03-16 – 2026-03-30 | Phase 3: monitoring window, Reclaim account kept active |
+| D40 | 2026-04-15 | Reclaim account safe to cancel (30-day safety window elapsed) |
 
 ---
 
