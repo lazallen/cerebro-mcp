@@ -193,8 +193,8 @@ export class SmartMeetingSchedulerTask implements TaskHandler {
           continue;
         }
 
-        // Pick first suggestion
-        const slot = suggestions[0];
+        // Pick best suggestion — closest to idealTime if set, otherwise first
+        const slot = this.pickBestSuggestion(suggestions, meeting.window.idealTime);
         const slotStart = slot.timeSlot?.start;
         const slotEnd = slot.timeSlot?.end;
 
@@ -915,6 +915,28 @@ export class SmartMeetingSchedulerTask implements TaskHandler {
     }
 
     return meetings;
+  }
+
+  /**
+   * Pick the best suggestion from findMeetingTimes results.
+   * If idealTime (HH:MM) is set, picks the suggestion whose start time-of-day
+   * is closest to idealTime. Otherwise returns the first suggestion.
+   */
+  private pickBestSuggestion(suggestions: any[], idealTime?: string): any {
+    if (!idealTime || suggestions.length === 0) {
+      return suggestions[0];
+    }
+
+    const [ih, im] = idealTime.split(':').map(Number);
+    const idealMins = (ih ?? 0) * 60 + (im ?? 0);
+
+    return suggestions.reduce((best, s) => {
+      const sDate = new Date(s.timeSlot?.start ?? '');
+      const bDate = new Date(best.timeSlot?.start ?? '');
+      const sDiff = Math.abs(sDate.getHours() * 60 + sDate.getMinutes() - idealMins);
+      const bDiff = Math.abs(bDate.getHours() * 60 + bDate.getMinutes() - idealMins);
+      return sDiff < bDiff ? s : best;
+    });
   }
 
   /**

@@ -23,6 +23,12 @@ export interface MeetingWindow {
   startTime: string;
   /** Latest end time of day acceptable (HH:MM, 24h) */
   endTime: string;
+  /**
+   * Preferred start time of day (HH:MM, 24h).
+   * When set, the scheduler picks the suggestion whose start time is
+   * closest to this value rather than always taking the first suggestion.
+   */
+  idealTime?: string;
 }
 
 /**
