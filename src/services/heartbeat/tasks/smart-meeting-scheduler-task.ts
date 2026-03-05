@@ -19,6 +19,7 @@ import type {
   DayOfWeek,
   PendingReschedule,
 } from '../../../types/smart-meetings';
+import { CADENCE_DAYS } from '../../../types/smart-meetings';
 
 const DAY_NAMES_SHORT: string[] = [
   'sunday',
@@ -138,26 +139,46 @@ export class SmartMeetingSchedulerTask implements TaskHandler {
         const debt = calculateCadenceDebt(meeting, now);
         const targetHorizonDays = debt.targetHorizonDays;
 
-        // Build search window: now + minNoticePeriod → now + targetHorizonDays
-        const windowStart = new Date(now.getTime() + minNoticePeriodHours * 60 * 60 * 1000);
+        // Outer bound of the search window
         const windowEnd = new Date(now.getTime() + targetHorizonDays * 24 * 60 * 60 * 1000);
 
-        // FR-003: Check if a matching event already exists in the look-ahead window
-        const alreadyScheduled = this.findMatchingEvent(calendarEvents, meeting);
-        if (alreadyScheduled) {
+        // FR-003: Ensure rolling coverage — skip only if there's already an event
+        // beyond one cadence period out. If the only scheduled event is within the
+        // current cadence window, create the next occurrence too so there's always
+        // visibility ~lookAheadDays ahead.
+        const cadenceDays = CADENCE_DAYS[meeting.cadence.frequency];
+        const cadenceCutoff = new Date(now.getTime() + cadenceDays * 24 * 60 * 60 * 1000);
+
+        const nearTermEvent = this.findMatchingEvent(
+          calendarEvents.filter(e => new Date(e.start?.dateTime ?? e.startDateTime ?? '') <= cadenceCutoff),
+          meeting
+        );
+        const farTermEvent = this.findMatchingEvent(
+          calendarEvents.filter(e => new Date(e.start?.dateTime ?? e.startDateTime ?? '') > cadenceCutoff),
+          meeting
+        );
+
+        if (farTermEvent) {
           logger.info({
             operation: 'smart_meeting_skip_already_scheduled',
             meetingId: meeting.id,
-            existingEventSubject: alreadyScheduled.subject,
-            message: `[${meeting.id}] Already scheduled — skipping`,
+            existingEventSubject: farTermEvent.subject,
+            message: `[${meeting.id}] Already scheduled beyond cadence window — skipping`,
           });
           continue;
         }
 
+        // If there's a near-term event, search for the NEXT occurrence (after cadence cutoff).
+        // If no event at all, search from minNoticePeriod as normal.
+        const searchFrom = nearTermEvent
+          ? cadenceCutoff
+          : new Date(now.getTime() + minNoticePeriodHours * 60 * 60 * 1000);
+
         logger.info({
           operation: 'smart_meeting_find_slot',
           meetingId: meeting.id,
-          windowStart: windowStart.toISOString(),
+          hasNearTerm: !!nearTermEvent,
+          searchFrom: searchFrom.toISOString(),
           windowEnd: windowEnd.toISOString(),
           durationMinutes: meeting.durationMinutes,
           message: `[${meeting.id}] Finding meeting slot`,
@@ -169,7 +190,7 @@ export class SmartMeetingSchedulerTask implements TaskHandler {
           const result = await this.microsoftService.findMeetingTimes({
             attendees: meeting.attendees,
             meetingDuration: meeting.durationMinutes,
-            timeConstraintStart: windowStart.toISOString(),
+            timeConstraintStart: searchFrom.toISOString(),
             timeConstraintEnd: windowEnd.toISOString(),
             maxCandidates: 5,
           });
