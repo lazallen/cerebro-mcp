@@ -225,7 +225,9 @@ Every file in `plan.md` Phase A–F mapped to a task.
 2. The `matching` logic (FR-003) checks "at least one attendee match" — a self-only meeting always matches any of Laz's events, creating a risk of false-positive matches against focus blocks or other personal events.
 3. The `conflict detection` logic (FR-007) checks attendee availability — with only Laz as attendee, any conflict with Laz's own calendar is automatically a self-conflict and will block scheduling.
 
-**Recommendation**: The Laz/George Goals meeting definition in `smart-meetings-config.json` (when created in G1/T028) MUST include George's email address as the second attendee: `"attendees": ["laz.allen@skyscanner.net", "george.XXXX@skyscanner.net"]`. All meeting definitions should have at least two attendees. Add a validation guard in `loadSmartMeetingsConfig` (T005 / config-io.ts) that warns (but does not hard-fail) when a meeting has only one attendee.
+**Resolution (post-analysis)**: The Laz/George Goals meeting was removed from config — it is owned by George (FR-013). The `George: Laz` weekly 1:1 is owned by Laz and remains in config with `attendees: ["George.Livingston@skyscanner.net"]`.
+
+**Note on single-attendee pattern**: All 30 non-team meetings correctly have only the other person's email. Laz is always the organiser (authenticated user) and is implicitly included in `findMeetingTimes` availability checks. A validator guarding against single-attendee meetings would produce 30 false warnings. The validation guard was **dropped** — only zero-attendee meetings should be flagged (genuine misconfiguration).
 
 ---
 

@@ -181,7 +181,7 @@ Laz opens `https://localhost:3333/smart-meetings` in a browser and sees a live s
 
 ### Measurable Outcomes
 
-- **SC-001**: All 35 active meetings from Reclaim are present in the config with correct cadence and attendees
+- **SC-001**: All 34 active meetings from Reclaim are present in the config with correct cadence and attendees (35 originally extracted; 1 George-owned meeting excluded per FR-013)
 - **SC-002**: Heartbeat runs and schedules at least one unscheduled meeting correctly in the first automated test
 - **SC-003**: No meeting is rescheduled within 48 hours of its current time (zero tolerance)
 - **SC-004**: After one month of operation, history arrays are populated for all active meetings with 3+ entries

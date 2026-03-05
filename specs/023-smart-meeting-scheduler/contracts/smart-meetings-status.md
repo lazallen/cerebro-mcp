@@ -99,11 +99,13 @@ All parameters are optional. Calling the tool with an empty object `{}` returns 
           "items": {
             "type": "object",
             "properties": {
+              "warningType":      { "type": "string", "enum": ["imbalance", "stale-data"] },
               "category":         { "type": "string", "enum": ["focus", "recurring", "adHoc"] },
               "consecutiveWeeks": { "type": "number" },
               "thresholdPct":     { "type": "number" },
               "message":          { "type": "string" }
-            }
+            },
+            "required": ["warningType", "category", "consecutiveWeeks", "thresholdPct", "message"]
           }
         }
       }
@@ -230,6 +232,7 @@ Three meetings: one on-schedule (green), one amber (1–13 days overdue), one re
     },
     "warnings": [
       {
+        "warningType": "imbalance",
         "category": "recurring",
         "consecutiveWeeks": 3,
         "thresholdPct": 50,
@@ -285,6 +288,7 @@ When the Microsoft Graph `calendarView` call fails during a tool invocation, the
         "message": "Recurring meetings have accounted for more than 50% of working hours for 3 consecutive weeks (current week: 55%, last week: 58%). Consider protecting more focus time."
       },
       {
+        "warningType": "stale-data",
         "category": "focus",
         "consecutiveWeeks": 0,
         "thresholdPct": 50,
@@ -295,7 +299,7 @@ When the Microsoft Graph `calendarView` call fails during a tool invocation, the
 }
 ```
 
-The stale-data warning is always the last entry in `warnings[]` and uses `consecutiveWeeks: 0` as a sentinel to distinguish it from a genuine imbalance warning.
+The stale-data warning always uses `warningType: "stale-data"` to distinguish it from genuine imbalance warnings (`warningType: "imbalance"`). It is always appended last in `warnings[]`.
 
 If `portfolioRef.current` is also null (rebalance pass has never run), `timePortfolio` is returned as `null` and the error is reported only in the MCP result metadata:
 
