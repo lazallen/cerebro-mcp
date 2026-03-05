@@ -107,6 +107,28 @@
       "config": {
         "markAsComplete": true
       }
+    },
+    {
+      "id": "smart-meeting-forward",
+      "name": "Smart Meeting Scheduler — Forward Scheduling",
+      "type": "smart-meeting-scheduler",
+      "schedule": "0 7 * * 1-5",
+      "enabled": false,
+      "config": {
+        "phase": "forward-scheduling",
+        "configPath": "./smart-meetings-config.json"
+      }
+    },
+    {
+      "id": "smart-meeting-rebalance",
+      "name": "Smart Meeting Scheduler — Weekly Rebalance",
+      "type": "smart-meeting-scheduler",
+      "schedule": "0 8 * * 1",
+      "enabled": false,
+      "config": {
+        "phase": "rebalance",
+        "configPath": "./smart-meetings-config.json"
+      }
     }
   ]
 }

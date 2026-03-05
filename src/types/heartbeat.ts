@@ -13,7 +13,8 @@ export type TaskType =
   | 'policy-pipeline'
   | 'executor'
   | 'pipeline-archive'
-  | 'slack-saved-items-ingestion';
+  | 'slack-saved-items-ingestion'
+  | 'smart-meeting-scheduler';
 
 /**
  * Configuration for a single scheduled task

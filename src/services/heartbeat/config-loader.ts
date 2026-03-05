@@ -137,7 +137,7 @@ export class ConfigLoader {
     }
 
     // Validate task type enum
-    const supportedTypes = ['email-triage', 'journal-triage', 'email-ingestion', 'calendar-ingestion', 'policy-pipeline', 'executor', 'pipeline-archive', 'slack-saved-items-ingestion'];
+    const supportedTypes = ['email-triage', 'journal-triage', 'email-ingestion', 'calendar-ingestion', 'policy-pipeline', 'executor', 'pipeline-archive', 'slack-saved-items-ingestion', 'smart-meeting-scheduler'];
     if (!supportedTypes.includes(t.type as string)) {
       throw new Error(
         `Invalid task configuration for "${t.id}": type "${t.type}" is not supported.\n\n` +
